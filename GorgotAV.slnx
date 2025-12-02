@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="GorgotAV.vcxproj" Id="38b7997b-13da-467a-b779-85572638ea37" />
+</Solution>
