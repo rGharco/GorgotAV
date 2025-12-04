@@ -1,13 +1,12 @@
 #include "logging.h"
 
-struct ErrorLog {
-    int code;
-    const char* module;
-    const char* function;
-    const char* message;
-    const char* timeStamp;
-    const char* details;
-};
+void log_verbose_stdout(const char* msg) {
+    printf("[VERBOSE] %s\n", msg);
+}
+
+void log_verbose_file(const char* msg) {
+    fprintf(config.outFile, "[VERBOSE] %s\n", msg);
+}
 
 void log_error(int code, const char* module, const char* function, const char* message, const char* details) {
     time_t currentTime;

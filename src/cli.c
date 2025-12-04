@@ -16,7 +16,7 @@
 #define GET_OPT(value) _Generic((value),              \
     const char  : get_short_opt_struct,               \
     char        : get_short_opt_struct,               \
-    const char* : get_long_opt_struct,               \
+    const char* : get_long_opt_struct,                \
     char*       : get_long_opt_struct                 \
 )(value) 
 
@@ -42,10 +42,6 @@ typedef enum FLAG_CODES {
     BAD_KEY_CODE
 }FLAG_CODES;
 
-enum ConfigFlag {
-    FLAG_VERBOSE = 1 << 0
-};
-
 struct Option {
     char* flagName;
     int key;
@@ -53,6 +49,10 @@ struct Option {
 };
 
 AppConfig config = { 0 };
+
+void init_config(AppConfig* config) {
+    config->outFile = NULL;
+};
 
 static Option shortOptions[] = {
     ['v'] = {"-v", VERBOSE, false},
@@ -93,6 +93,17 @@ static int get_opt(const Option* option, const char* param) {
         return 0;
     case OUTPUT:
         printf("Parameter received: %s\n", param);
+        FILE* outFile = fopen(param, "w");
+        errno = 0;
+
+        if (outFile == NULL) {
+            perror(strerror(errno));
+            return -1;
+        }
+
+        LOG_VERBOSE(config.outFile, "Created output file!");
+
+        config.outFile = outFile;
         return 0;
     default:
         break; // won't reach this branch because option cannot be NULL
@@ -138,7 +149,7 @@ ParseStatus parse_args(int argc, char* argv[]) {
             if (hasParam != NULL) {
                 char* param = hasParam + 1;
 
-                int optLen = hasParam - currArg;
+                __int64 optLen = hasParam - currArg;
 
                 // Option BEFORE = 
                 char optStr[64] = { 0 };
@@ -246,4 +257,8 @@ ParseStatus parse_args(int argc, char* argv[]) {
     }
 
     return PARSE_STATUS_OK;
+}
+
+void disable_config(AppConfig* config) {
+    if (config->outFile != NULL) fclose(config->outFile);
 }

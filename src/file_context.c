@@ -2,7 +2,7 @@
 #include "logging.h"
 #include "cli.h"
 
-#define MODULE_NAME "file_context.c"
+#define MODULE_NAME "file_context.c"    
 
 //----------------------------------------------------------------------------------
 // Struct definition

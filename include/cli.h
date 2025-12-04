@@ -15,7 +15,9 @@ typedef struct AppConfig {
     uint32_t flags;
 }AppConfig;
 
-typedef enum ConfigFlag ConfigFlag;
+enum ConfigFlag {
+    FLAG_VERBOSE = 1 << 0
+};
 
 extern AppConfig config;
 
@@ -24,4 +26,6 @@ typedef enum ParseStatus {
     PARSE_STATUS_FAIL,
 }ParseStatus;
 
+void init_config(AppConfig* config);
 ParseStatus parse_args(int argc, char* argv[]);
+void disable_config(AppConfig* config);

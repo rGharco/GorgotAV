@@ -6,6 +6,8 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments
     //-----------------------------------------------------------
 
+    init_config(&config);
+
     ParseStatus argParseStatus = parse_args(argc, argv);
 
     if (argParseStatus != PARSE_STATUS_OK) {
@@ -29,6 +31,8 @@ int main(int argc, char* argv[]) {
     //-----------------------------------------------------------
     // Close configuration struct
     //-----------------------------------------------------------
+
+    disable_config(&config);
 
     return 0;
 }
