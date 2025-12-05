@@ -1,5 +1,6 @@
 #include "file_context.h"
 #include "cli.h"
+#include "static_analysis.h"
 
 int main(int argc, char* argv[]) {
     //-----------------------------------------------------------
@@ -25,6 +26,8 @@ int main(int argc, char* argv[]) {
     if (fileContext == NULL) {
         exit(EXIT_FAILURE);
     }
+
+    static_analysis(fileContext);
 
     close_file_context(fileContext);
 

@@ -120,6 +120,14 @@ static LPVOID open_map_view(HANDLE hFileMap) {
     return baseAddress;
 }
 
+HANDLE get_file_handle(const PFileContext fc) {
+    return fc->hFile;
+}
+
+LPVOID get_base_address(const PFileContext fc) {
+    return fc->baseAddress;
+}
+
 void close_file_context(PFileContext fileContext) {
     if (fileContext == NULL) return;
     if (fileContext->baseAddress != NULL) UnmapViewOfFile(fileContext->baseAddress);;

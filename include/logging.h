@@ -16,6 +16,14 @@
         }                                       \
     } while (0)                                              
 
+enum LoggingCodes {
+    MISSING_VARIABLE_ERR, 
+    BAD_OPERATION_ERR,
+    MEMORY_ALLOCATION_ERR,
+
+    UNKNOWN_ERROR_CODE
+};
+
 void log_error(int code, const char* module, const char* function, const char* message, const char* details);
 void log_warning(const char* module, const char* function, const char* message, const char* details);
 
