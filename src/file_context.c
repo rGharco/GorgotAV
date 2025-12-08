@@ -50,6 +50,8 @@ PFileContext create_file_context(LPCSTR fileName) {
         goto Cleanup;
     }
 
+	LOG_VERBOSE(config.outFile, "File context created successfully!");
+
     return fileContext;
 
 Cleanup:
