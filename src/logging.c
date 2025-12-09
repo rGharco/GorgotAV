@@ -1,4 +1,5 @@
 #include "logging.h"
+#include "analysis_result.h"
 
 void log_verbose_stdout(const char* msg) {
     printf("[VERBOSE] %s\n", msg);
@@ -27,7 +28,7 @@ void log_error(int code, const char* module, const char* function, const char* m
     fflush(stderr);
 }
 
-void log_warning(const char* module, const char* function, const char* message, const char* details) {
+void log_warning(const char* module, const char* function, const char* message, const char* details)  {
     time_t currentTime;
     time(&currentTime);
 
@@ -42,4 +43,13 @@ void log_warning(const char* module, const char* function, const char* message, 
     }
 
     fflush(stderr);
+}  
+
+void log_analysis_result(const AnalysisResult* result) {
+	fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
+
+	fprintf(config.outFile, "\t> %-15s: %-s\n", "Sha256 Hash", result->sha256Hash);
+	fprintf(config.outFile, "\t> %-15s: %-.6f\n", "Entropy", result->entropy);
+
+    fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
 }

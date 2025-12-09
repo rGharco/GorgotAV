@@ -89,7 +89,7 @@ static Arena* allocate_memory_for_hash(LPVOID* pHashObj, LPVOID* pHash) {
 	return arena;
 }
 
-static inline BOOL binaryToHexHash(const LPVOID pHash, char* sha256Hash) {
+static inline void binaryToHexHash(const LPVOID pHash, char* sha256Hash) {
 	char* out = sha256Hash;
 
 	for (ULONG i = 0; i < cbHashSize; i++) {
@@ -242,7 +242,7 @@ static double shanon_entropy(const PFileContext fc) {
 	return entropy;
 }
 
-void static_analysis(const PFileContext fc) {
+void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	LOG_VERBOSE(config.outFile, "Starting static analysis...");
 
 	char* sha256Hash = compute_hash(fc);
@@ -252,12 +252,14 @@ void static_analysis(const PFileContext fc) {
 		return;
 	}
 
-	printf("Sha256: %s\n", sha256Hash);
+	result->sha256Hash = sha256Hash;
 
 	double entropy = shanon_entropy(fc);
 
-	printf("Entropy: %llf\n", entropy);
+	if (entropy < 0) {
+		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
+		return;
+	}
 
-	// -- Cleanup --
-	free(sha256Hash);
+	result->entropy = entropy;
 }

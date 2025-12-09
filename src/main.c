@@ -1,6 +1,8 @@
 #include "file_context.h"
 #include "cli.h"
 #include "static_analysis.h"
+#include "analysis_result.h"
+#include "logging.h"
 
 int main(int argc, char* argv[]) {
     //-----------------------------------------------------------
@@ -27,15 +29,19 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    static_analysis(fileContext);
+	AnalysisResult* analysisResult = create_analysis_result(fileContext);
 
-    close_file_context(fileContext);
+    static_analysis(fileContext, analysisResult);
+
+	log_analysis_result(analysisResult);
 
     //-----------------------------------------------------------
-    // Close configuration struct
+    // Cleanup
     //-----------------------------------------------------------
 
     disable_config(&config);
+	destroy_analysis_result(analysisResult);
+    close_file_context(fileContext);
 
     return 0;
 }

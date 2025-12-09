@@ -1,10 +1,10 @@
 #pragma once
 
+#include "cli.h"
+
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
-
-#include "cli.h"
 
 #define LOG_VERBOSE(out, msg)                   \
     do {                                        \
@@ -29,3 +29,7 @@ void log_warning(const char* module, const char* function, const char* message, 
 
 void log_verbose_stdout(const char* msg);
 void log_verbose_file(const char* msg);
+
+typedef struct AnalysisResult AnalysisResult;
+
+void log_analysis_result(const AnalysisResult* result);

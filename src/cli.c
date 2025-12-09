@@ -51,7 +51,7 @@ struct Option {
 AppConfig config = { 0 };
 
 void init_config(AppConfig* config) {
-    config->outFile = NULL;
+    config->outFile = stdout;
 };
 
 static Option shortOptions[] = {
