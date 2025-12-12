@@ -1,4 +1,7 @@
 #include "static_analysis.h"
+#include "arena.h"
+#include "pe_utils.h"
+#include "logging.h"
 
 #define MODULE_NAME "static_analysis.c"
 
@@ -22,6 +25,8 @@
 	} \
 
 #define BYTE_SIZE 256 
+#define MEMORY_SIZE_8KB 8192
+#define SECTION_NAME_AS_CHAR_IN_BYTES 9 // 8 + null terminator
 
 // -- Global variables --
 
@@ -75,7 +80,7 @@ static Arena* allocate_memory_for_hash(LPVOID* pHashObj, LPVOID* pHash) {
 	Arena* arena = arena_create(totalHeapSize);
 
 	if (!arena) {
-		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to create memory arena for hash!", "");
+		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to create arena for hash!", "");
 		return NULL;
 	}
 
@@ -137,7 +142,7 @@ static char* compute_hash(const PFileContext fc) {
 	CHECK_STATUS(status, "Create Hash Object");
 
 	// -- Hash the file --
-	BYTE buffer[4096] = { 0 };
+	BYTE buffer[MEMORY_SIZE_8KB] = { 0 };
 	DWORD bytesRead;
 
 	BOOL ok;
@@ -168,9 +173,7 @@ static char* compute_hash(const PFileContext fc) {
 	char* sha256Hash = (char*)malloc(SHA256_HASH_HEX_STRING_SIZE);
 
 	if (sha256Hash == NULL) {
-		log_error(errno, MODULE_NAME, __func__, "Failed to allocate memory for SHA256 hash string!", 
-			"Default code was overwritten by errno");
-		perror(strerror(errno));
+		log_malloc_error("Could not allocate memory for SHA256 hash string!", MODULE_NAME, __func__);
 		return NULL;
 	}
 
@@ -198,29 +201,12 @@ Cleanup:
 }
 
 //-----------------------------------------------------------
-// Functions for hashing
+// Entropy
 //-----------------------------------------------------------
 
 static double shanon_entropy(const PFileContext fc) {
 	unsigned long long byteCount[BYTE_SIZE] = { 0 };
-	BYTE buffer[4096] = { 0 };
-	DWORD bytesRead = 0;
-
-	BOOL ok;
-	while (true) {
-		ok = ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL);
-
-		if (!ok) {
-			log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "ReadFile failed!", "");
-			return -1;
-		}
-
-		if (bytesRead == 0) break;
-
-		for (DWORD i = 0; i < bytesRead; i++) {
-			byteCount[buffer[i]]++;
-		}
-	}
+	BYTE* baseAddress = get_base_address(fc);
 
 	LARGE_INTEGER fileSize = { 0 };
 	if (!GetFileSizeEx(hFile, &fileSize)) {
@@ -229,6 +215,10 @@ static double shanon_entropy(const PFileContext fc) {
 	}
 
 	LONGLONG size = fileSize.QuadPart;
+
+	for (LONGLONG i = 0; i < size; i++) {
+		byteCount[baseAddress[i]]++;
+	}
 
 	double entropy = 0;
 
@@ -240,6 +230,66 @@ static double shanon_entropy(const PFileContext fc) {
 	}
 
 	return entropy;
+}
+
+//-----------------------------------------------------------
+// PE format functions
+//-----------------------------------------------------------
+
+// -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
+static char** analyze_suspicious_executable_sections(const PFileContext fc, WORD* outCount) {
+	WORD nrOfSections = get_nr_of_sections(fc);
+	PIMAGE_SECTION_HEADER ptrSections = get_ptr_to_section_start(fc);
+
+	char** foundSections = (char**)malloc(sizeof(char*) * nrOfSections);
+
+	if (foundSections == NULL) {
+		log_malloc_error("Could not allocate memory for section names!", MODULE_NAME, __func__);
+	}
+
+	for (WORD i = 0; i < nrOfSections; i++) {
+		foundSections[i] = malloc(sizeof(char) * SECTION_NAME_AS_CHAR_IN_BYTES);
+
+		if (foundSections[i] == NULL) {
+			log_malloc_error("Could not allocate memory for individual section names!", MODULE_NAME, __func__);
+		}
+	}
+
+	const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
+	const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
+	const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
+
+	bool isNormalExecSection;
+	int sectFound = 0;
+	char* currSlot = (*foundSections);
+
+	for (WORD i = 0; i < nrOfSections; i++) {
+		isNormalExecSection = false;
+
+		if (memcmp(ptrSections->Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
+			isNormalExecSection = true;
+		}
+		else if (memcmp(ptrSections->Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
+			isNormalExecSection = true;
+		}
+		else if (memcmp(ptrSections->Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
+			isNormalExecSection = true;
+		}
+
+		if ((ptrSections->Characteristics & IMAGE_SCN_MEM_EXECUTE) && !isNormalExecSection) {
+			memcpy(currSlot, ptrSections->Name, IMAGE_SIZEOF_SHORT_NAME);
+			currSlot[IMAGE_SIZEOF_SHORT_NAME] = '\0';
+			currSlot += SECTION_NAME_AS_CHAR_IN_BYTES;
+
+			sectFound++;
+		}
+
+		ptrSections++;
+	}
+
+	*outCount = sectFound;
+
+	return foundSections;
 }
 
 void static_analysis(const PFileContext fc, AnalysisResult* result) {
@@ -262,4 +312,22 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	}
 
 	result->entropy = entropy;
+
+	PEStatus status = parse_pe(fc);
+
+	if (status != PE_STATUS_OK) {
+		printf("[INFO] The file is not an executable! Proceeding with file type identification!\n");
+	}
+
+	WORD sectCount = 0;
+	char** suspiciousSect = analyze_suspicious_executable_sections(fc, &sectCount);
+
+	if (sectCount > 0) {
+		result->execSections = suspiciousSect;
+		result->sectCount = sectCount;
+	}
+	else {
+		free(suspiciousSect); // free unused memory
+	}
+
 }

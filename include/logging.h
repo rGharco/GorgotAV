@@ -32,4 +32,6 @@ void log_verbose_file(const char* msg);
 
 typedef struct AnalysisResult AnalysisResult;
 
+void log_malloc_error(const char* msg, const char* module, const char* func);
+
 void log_analysis_result(const AnalysisResult* result);

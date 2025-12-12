@@ -45,11 +45,23 @@ void log_warning(const char* module, const char* function, const char* message, 
     fflush(stderr);
 }  
 
+void log_malloc_error(const char* msg,const char* module, const char* func) {
+    log_error(errno, module, func, msg,
+        "Default error codes were overwritten by errno code!");
+    perror(strerror(errno));
+}
+
 void log_analysis_result(const AnalysisResult* result) {
 	fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
 
 	fprintf(config.outFile, "\t> %-15s: %-s\n", "Sha256 Hash", result->sha256Hash);
 	fprintf(config.outFile, "\t> %-15s: %-.6f\n", "Entropy", result->entropy);
+
+    if (result->sectCount > 0) {
+        for (WORD i = 0; i < result->sectCount; i++) {
+            fprintf(config.outFile, "\t> %-15s: %-s -> has executable flag set!\n", "Section", result->execSections[i]);
+        }
+    }
 
     fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
 }

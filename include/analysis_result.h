@@ -10,6 +10,8 @@ typedef struct AnalysisResult {
 	PFileContext fc;
 	char* sha256Hash;
 	double entropy;
+	char** execSections; // non-standard exec sections (others beside .text, .textbss, .code)
+	WORD sectCount;
 	float confidenceScore;
 } AnalysisResult;
 

@@ -6,18 +6,14 @@ Arena* arena_create(size_t size) {
 	Arena* arena = (Arena*)malloc(sizeof(Arena));
 	
 	if (!arena) {
-		log_error(errno, "arena.c", __func__, "Failed to allocate memory for Arena struct!",
-			"Default error code was overwritten to the corresponding errno for malloc");
-		perror(strerror(errno));
+		log_malloc_error("Could not allocate memory for Arena struct!", MODULE_NAME, __func__);
 		return NULL;
 	}
 
 	arena->memory = malloc(size);
 
 	if (!arena->memory) {
-		log_error(errno, "arena.c", __func__, "Failed to allocate memory for Arena memory!",
-			"Default error code was overwritten to the corresponding errno for malloc");
-		perror(strerror(errno));
+		log_malloc_error("Could not allocate memory for Arena memory space!", MODULE_NAME, __func__);
 		free(arena);
 		return NULL;
 	}

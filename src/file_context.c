@@ -12,6 +12,8 @@ struct FileContext {
     HANDLE hFile;
     HANDLE hFileMap;
     LPVOID baseAddress;
+    WORD nrOfSections;
+    PIMAGE_SECTION_HEADER ptrToSectionStart;
 };
 
 //----------------------------------------------------------------------------------
@@ -122,13 +124,41 @@ static LPVOID open_map_view(HANDLE hFileMap) {
     return baseAddress;
 }
 
+//----------------------------------------------------------------------------------
+// Getters
+//----------------------------------------------------------------------------------
+
 HANDLE get_file_handle(const PFileContext fc) {
     return fc->hFile;
 }
 
 LPVOID get_base_address(const PFileContext fc) {
-    return fc->baseAddress;
+    return fc->baseAddress; 
 }
+
+WORD get_nr_of_sections(const PFileContext fc) {
+    return fc->nrOfSections;
+}
+
+PIMAGE_SECTION_HEADER get_ptr_to_section_start(const PFileContext fc) {
+    return fc->ptrToSectionStart;
+}
+
+//----------------------------------------------------------------------------------
+// Setters
+//----------------------------------------------------------------------------------
+
+void set_sections_ptr(const PFileContext fc, PIMAGE_SECTION_HEADER ptr) {
+    fc->ptrToSectionStart = ptr;
+}
+
+void set_nr_of_sections(const PFileContext fc, WORD sectionNr) {
+    fc->nrOfSections = sectionNr;
+}
+
+//----------------------------------------------------------------------------------
+// Cleanup
+//----------------------------------------------------------------------------------
 
 void close_file_context(PFileContext fileContext) {
     if (fileContext == NULL) return;
