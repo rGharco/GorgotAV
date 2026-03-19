@@ -1,0 +1,53 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "Build Main",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/std:c11",
+                "/Fo${workspaceFolder}\\build\\obj\\",
+                "/I${workspaceFolder}\\include",
+                "${workspaceFolder}\\src\\*.c",
+                "/nologo",
+                "/Fe${workspaceFolder}\\build\\GorgotAV.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": ["$msCompile"],
+            "group": "build"
+        },
+        {
+            "type": "cppbuild",
+            "label": "Build IntegrityChecker",
+            "command": "cl.exe",
+            "args": [
+                "/Zi",
+                "/std:c11",
+                "/Fo${workspaceFolder}\\build\\obj\\",
+                "/I${workspaceFolder}\\include",
+                "${workspaceFolder}\\GorgotIntegrityChecker\\main.c",
+                "/nologo",
+                "/Fe${workspaceFolder}\\build\\GorgotIntegrityChecker.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": ["$msCompile"],
+            "group": "build"
+        },
+        {
+            "label": "Build All",
+            "dependsOn": ["Build Main", "Build IntegrityChecker"],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

@@ -1,0 +1,203 @@
+#include "file_context.h"
+#include "logging.h"
+#include "cli.h"
+
+#define MODULE_NAME "file_context.c"    
+
+//----------------------------------------------------------------------------------
+// Struct definition
+//----------------------------------------------------------------------------------
+
+struct FileContext {
+    HANDLE hFile;
+    HANDLE hFileMap;
+    LPVOID baseAddress;
+    PIMAGE_SECTION_HEADER ptrToSectionStart;
+    PeFormat peFormat;
+    WORD nrOfSections;
+    union{
+        PIMAGE_NT_HEADERS32 nt32;
+        PIMAGE_NT_HEADERS64 nt64;
+    } nt;
+};
+
+//----------------------------------------------------------------------------------
+// Function Prototypes
+//----------------------------------------------------------------------------------
+
+static HANDLE open_file_handle(LPCSTR fileName);
+static HANDLE open_file_map(HANDLE hFile);
+static LPVOID open_map_view(HANDLE hFileMap);
+
+PFileContext create_file_context(LPCSTR fileName) {
+    PFileContext fileContext = calloc(1, sizeof(FileContext));
+
+    if (fileContext == NULL || errno != 0) {
+        log_error(errno, MODULE_NAME, __func__,
+            "Could not initialize memory for fileContext",
+            strerror(errno));
+        return NULL;
+    }
+
+    fileContext->hFile = open_file_handle(fileName);
+
+    if (fileContext->hFile == NULL) {
+        goto Cleanup;
+    }
+
+    fileContext->hFileMap = open_file_map(fileContext->hFile);
+
+    if (fileContext->hFileMap == NULL) {
+        goto Cleanup;
+    }
+
+    fileContext->baseAddress = open_map_view(fileContext->hFileMap);
+
+    if (fileContext->baseAddress == NULL) {
+        goto Cleanup;
+    }
+
+	LOG_VERBOSE(config.outFile, "File context created successfully!");
+
+    return fileContext;
+
+Cleanup:
+    if (fileContext->baseAddress != NULL) UnmapViewOfFile(fileContext->baseAddress);
+    if (fileContext->hFileMap != NULL) CloseHandle(fileContext->hFileMap);
+    if (fileContext->hFile != NULL) CloseHandle(fileContext->hFile);
+    free(fileContext);
+
+    return NULL;
+}
+
+static HANDLE open_file_handle(LPCSTR fileName) {
+    HANDLE hFile = CreateFile(
+        fileName,
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        log_error_winapi(err, MODULE_NAME, __func__, "");
+
+        return NULL;
+    }
+
+    return hFile;
+}
+
+static HANDLE open_file_map(HANDLE hFile) {
+    HANDLE hFileMap = NULL;
+
+    hFileMap = CreateFileMapping(
+        hFile,
+        NULL,
+        PAGE_READONLY,
+        0,
+        0,
+        NULL
+    );
+
+    if (hFileMap == NULL) {
+        DWORD err = GetLastError();
+        log_error_winapi(err, MODULE_NAME, __func__, "");
+
+        return hFileMap;
+    }
+
+    return hFileMap;
+}
+
+static LPVOID open_map_view(HANDLE hFileMap) {
+    LPVOID baseAddress = MapViewOfFile(
+        hFileMap,
+        FILE_MAP_READ,
+        0,
+        0,
+        0
+    );
+
+    if (baseAddress == NULL) {
+        DWORD err = GetLastError();
+        log_error_winapi(err, MODULE_NAME, __func__, "");
+
+        return baseAddress;
+    }
+
+    return baseAddress;
+}
+
+//----------------------------------------------------------------------------------
+// Getters
+//----------------------------------------------------------------------------------
+
+HANDLE get_file_handle(const PFileContext fc) {
+    return fc->hFile;
+}
+
+LPVOID get_base_address(const PFileContext fc) {
+    return fc->baseAddress; 
+}
+
+WORD get_nr_of_sections(const PFileContext fc) {
+    return fc->nrOfSections;
+}
+
+PIMAGE_SECTION_HEADER get_ptr_to_section_start(const PFileContext fc) {
+    return fc->ptrToSectionStart;
+}
+
+PeFormat get_pe_format(const PFileContext fc) {
+    return fc->peFormat;
+}
+
+PIMAGE_NT_HEADERS32 get_optional_header_32(const PFileContext fc) {
+    return fc->nt.nt32;
+}
+
+PIMAGE_NT_HEADERS64 get_optional_header_64(const PFileContext fc) {
+    return fc->nt.nt64;
+}
+
+//----------------------------------------------------------------------------------
+// Setters
+//----------------------------------------------------------------------------------
+
+void set_optional_header_ptr(const PFileContext fc, const PeFormat format, const LPVOID* optHeaderPtr) {
+    if (format == PE32) {
+        fc->nt.nt32 = (PIMAGE_NT_HEADERS32)optHeaderPtr;
+    }
+    else {
+        fc->nt.nt64 = (PIMAGE_NT_HEADERS64)optHeaderPtr;
+    }
+}
+
+void set_sections_ptr(const PFileContext fc, PIMAGE_SECTION_HEADER ptr) {
+    fc->ptrToSectionStart = ptr;
+}
+
+void set_nr_of_sections(const PFileContext fc, WORD sectionNr) {
+    fc->nrOfSections = sectionNr;
+}
+
+void set_pe_format(PFileContext fc, PeFormat format) {
+    fc->peFormat = format;
+}
+
+//----------------------------------------------------------------------------------
+// Cleanup
+//----------------------------------------------------------------------------------
+
+void close_file_context(PFileContext fileContext) {
+    if (fileContext == NULL) return;
+    if (fileContext->baseAddress != NULL) UnmapViewOfFile(fileContext->baseAddress);;
+    if (fileContext->hFileMap != NULL) CloseHandle(fileContext->hFileMap);
+    if (fileContext->hFile != NULL) CloseHandle(fileContext->hFile);
+
+    free(fileContext);
+}
