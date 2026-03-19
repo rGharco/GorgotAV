@@ -1,0 +1,84 @@
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# Build artifacts
+# =========================
+# Compiled object files
+*.o
+*.obj
+
+# Executables
+*.exe
+*.out
+*.app
+*.elf
+
+# Static / dynamic libraries
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+
+# Build directories
+build/
+bin/
+Debug/
+Release/
+
+# =========================
+# Compiler / build system
+# =========================
+*.d
+*.dep
+*.tlog
+
+# =========================
+# Debug files
+# =========================
+*.pdb
+*.idb
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# OS generated files
+# =========================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+
+# =========================
+# CMake (if used)
+# =========================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# =========================
+# Visual Studio (if ever used)
+# =========================
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
