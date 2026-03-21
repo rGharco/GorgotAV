@@ -78,182 +78,25 @@ static const char* certStatusStr(enum CERTIFICATE_STATUS status) {
 }
 
 //-----------------------------------------------------------
-// Functions for hashing
+// Hashing
 //-----------------------------------------------------------
 
-static BOOL init_hash_variables(const PFileContext fc);
-static Arena* allocate_memory_for_hash(LPVOID * pHashObj, LPVOID * pHash);
-static inline void binaryToHexHash(const LPVOID pHash, char* sha256Hash);
+// This function has been AI generated to improve performance when transforming from binary data to hex readable strings
+static void binaryToHexHash(_In_ const PBYTE restrict pHash, _Out_writes_z_(SHA256_HASH_BYTES) char* restrict outHashHex) {
+    static const char hex[] = "0123456789ABCDEF";
+    const unsigned char* bytes = (const unsigned char*)pHash;
 
-static char* get_file_sha256_hash(const PFileContext fc) {
-	// -- Open algorithm handle --
-	BCRYPT_HASH_HANDLE hHash = NULL;
+    for (ULONG i = 0; i < SHA256_HASH_BYTES; ++i) {
+        unsigned char b = bytes[i];
 
-	NTSTATUS status = STATUS_UNSUCCESSFUL;
+        // High nibble (first hex char)
+        outHashHex[2 * i]     = hex[(b >> 4) & 0x0F];
 
-	LPVOID pHash = NULL; // points to where the hash string will be stored in memory
-	LPVOID pHashObject = NULL; // pointer to memory zone where we store the hash object
+        // Low nibble (second hex char)
+        outHashHex[2 * i + 1] = hex[b & 0x0F];
+    }
 
-	// After calling init_hash_variables, we have the digest length, object length, and hash algorithm handle all ready to use
-	if (!init_hash_variables(fc)) {
-		log_error(HASHING_ERR, MODULE_NAME, __func__, "Failed to initialize hash variables!", "");
-		return NULL;
-	}
-
-	Arena* pointersArena = allocate_memory_for_hash(&pHashObject, &pHash);
-
-	// After calling the arena function, pHash and pHashObject both have their pointers to valid memory zones to store the designated values
-	if (!pointersArena) {
-		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash!", "");
-		return NULL;
-	}
-
-	// -- Create hash object --
-	status = BCryptCreateHash(
-		hAlg,
-		&hHash,
-		pHashObject,
-		hashObjectLength,
-		NULL,
-		0,
-		0
-	);
-
-	CHECK_HASH_STATUS(status, "Failed to create the hash object!", "BCryptCreateHash() failed!")
-
-	// -- Hash the file --
-	BYTE buffer[MEMORY_SIZE_8KB] = { 0 };
-	DWORD bytesRead;
-
-	BOOL ok; // used to check if the ReadFile call was successfull or not
-	while (TRUE) {
-		ok = ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL);
-
-		if (!ok) {
-			log_error(FILE_READING_ERR,MODULE_NAME,__func__,"ReadFile failed", "");
-			goto Cleanup;
-		}
-
-		if (bytesRead == 0) break; // reached EOF
-
-		status = BCryptHashData(hHash, buffer, bytesRead, 0);
-		CHECK_HASH_STATUS(status, "Failed hashing chunks of file!", "Sequential ReadFile() + BCryptHashData() failed!");
-	}
-
-	// -- Finish hashing and store the hash result (bytes) --
-	status = BCryptFinishHash(
-		hHash,
-		pHash,
-		hashDigestLength,
-		0
-	);
-
-	CHECK_HASH_STATUS(status, "Failed to create the hash digest", "BCryptFinishHash() failed!");
-
-	// --- Hash string conversion --- 
-	char* sha256Hash = (char*)malloc(SHA256_HASH_HEX_STRING_SIZE);
-
-	if (sha256Hash == NULL || errno != 0) {
-		log_error(errno, MODULE_NAME, __func__,strerror(errno), "Could not allocate memory for SHA256 hash string!");
-		return NULL;
-	}
-
-	binaryToHexHash(pHash, sha256Hash);
-
-	// -- Cleanup and return --
-
-	LARGE_INTEGER li = { 0 };
-	li.QuadPart = 0;
-
-	// We use ReadFile so the file pointer moves to a different offset and we must reset
-	SetFilePointerEx(hFile, li, NULL, FILE_BEGIN);
-
-	arena_destroy(pointersArena);
-	BCryptDestroyHash(hHash);
-
-	LOG_VERBOSE(config.outFile, "Computed SHA256 hash successfully!");
-
-	return sha256Hash;
-
-Cleanup:
-	if (hHash != NULL) BCryptDestroyHash(hHash);
-	if (pointersArena != NULL) arena_destroy(pointersArena);
-
-	return NULL;
-}
-
-static BOOL init_hash_variables(const PFileContext fc) {
-	// This is a pseudo-handler available in Windows 10 and above 
-	hAlg = BCRYPT_SHA256_ALG_HANDLE; 
-	NTSTATUS status = STATUS_UNSUCCESSFUL;
-	ULONG cbTemp = 0; // we use this to store values returned by BCryptGetProperty (things like hash length, hash object length)
-	hProcessHeap = GetProcessHeap();
-	hFile = get_file_handle(fc);
-
-	// Calculate size of buffer to hold hash object
-	status = BCryptGetProperty(
-		hAlg,
-		BCRYPT_OBJECT_LENGTH,
-		(PUCHAR)&hashObjectLength,
-		sizeof(ULONG),
-		&cbTemp,
-		0
-	);
-
-	if (status != STATUS_SUCCESS) {
-		log_error(HASHING_ERR, MODULE_NAME, __func__, "Failed to get hash object length!", "BCryptGetProperty() failed!");
-		return FALSE;
-	}
-
-	// Calculate the length of the hash (as a string) 
-	status = BCryptGetProperty(
-		hAlg,
-		BCRYPT_HASH_LENGTH,
-		(PUCHAR)&hashDigestLength,
-		sizeof(ULONG),
-		&cbTemp,
-		0
-	);
-
-	if (status != STATUS_SUCCESS) {
-		log_error(HASHING_ERR, MODULE_NAME, __func__, "Failed to get hash digest length!", "BCryptGetProperty() failed!");
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-static Arena* allocate_memory_for_hash(LPVOID* pHashObj, LPVOID* pHash) {
-	ULONG totalHeapSize = hashObjectLength + hashDigestLength;
-
-	Arena* arena = arena_create(totalHeapSize);
-
-	if (!arena) {
-		log_error(INITIALIZING_ARENA_ERR, MODULE_NAME, __func__, "Failed to create arena for hash!", "");
-		return NULL;
-	}
-
-	BYTE* currPointer = arena->memory;
-
-	*pHashObj = currPointer;
-	currPointer += hashObjectLength;
-
-	*pHash = currPointer;
-
-	return arena;
-}
-
-static void binaryToHexHash(const LPVOID pHash, char* sha256Hash) {
-	char* out = sha256Hash;
-
-	for (ULONG i = 0; i < hashDigestLength; i++) {
-		unsigned char byte = ((PUCHAR)pHash)[i];
-		snprintf(out, 3, "%02X", byte); // the 3 is because snprintf writes size - 1 chars, it adds null terminator
-		// We rewrite the null terminator on each iteration 
-		out += 2; // advance by the two chars just written
-	}
-
-	sha256Hash[SHA256_HASH_HEX_STRING_SIZE - 1] = '\0'; // null terminate the string
+    outHashHex[2 * SHA256_HASH_BYTES] = '\0';
 }
 
 //-----------------------------------------------------------
@@ -268,7 +111,7 @@ static double calculate_entropy(const PFileContext fc) {
 
 	LARGE_INTEGER fileSize = { 0 };
 
-	if (!GetFileSizeEx(hFile, &fileSize)) {
+	if (!GetFileSizeEx(get_file_handle(fc), &fileSize)) {
 		DWORD err = GetLastError();
 		log_error_winapi(err, MODULE_NAME, __func__, "GetFileSizeEx() failed!");
 
@@ -478,24 +321,30 @@ static CERTIFICATE_STATUS check_certificate_status(const PFileContext fc) {
 	}
 }
 
+// We do not free the pointers allocated in this function as their lifetime is dependent of AnalaysisResult 
 void static_analysis(const PFileContext fc, AnalysisResult* result) {
+	// -- Hashing 
 	LOG_VERBOSE(config.outFile, "Starting static analysis...");
 
-	char* sha256Hash = get_file_sha256_hash(fc);
+	PBYTE hash = create_hash(get_file_handle(fc), NULL);
+	char* sha256Hash = calloc(1, SHA256_HASH_HEX_STRING_SIZE);
+	binaryToHexHash(hash, sha256Hash);
 
 	result->sha256Hash = sha256Hash;
 
+	// -- Entropy calculation
 	LOG_VERBOSE(config.outFile, "Starting entropy calculation...");
 
 	double entropy = calculate_entropy(fc);
 
-	if (entropy < 0) {
+	if (entropy <= 0) {
 		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
 		return;
 	}
 
 	result->entropy = entropy;
 
+	// -- PE Header parsing
 	LOG_VERBOSE(config.outFile, "Parsing PE headers...");
 
 	PEStatus status = parse_pe(fc);
@@ -528,5 +377,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	LOG_VERBOSE(config.outFile, "Checking digital certificate status...");
 
 	CERTIFICATE_STATUS certificateStatus = check_certificate_status(fc); 
-	result->certificateStatus = certStatusStr(certificateStatus);
+	result->certificateStatus = certStatusStr(certificateStatus);	
+	
+	return;
 }

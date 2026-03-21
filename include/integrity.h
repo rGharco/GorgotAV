@@ -7,15 +7,17 @@
 #include <tchar.h>
 #include <pathcch.h>
 #include <sal.h>
-#include <bcrypt.h>
 #include <strsafe.h>
+
+#include "logging.h"
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Pathcch.lib")
-#pragma comment (lib, "bcrypt.lib")
 #pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "GorgotLib.lib")
 
-#include "logging.h"
+// From GorgotLib.lib
+PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash);
 
 typedef enum IntegrityStatus {
 	INTEGRITY_CHECK_AT_STARTUP_ERR,
@@ -46,3 +48,4 @@ IntegrityStatus remove_integrity_check_from_startup();
 
 _Check_return_
 IntegrityStatus store_integrity_data();
+

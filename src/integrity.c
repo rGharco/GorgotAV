@@ -342,125 +342,6 @@ static ModuleInfo* get_module_data() {
 	return modInfo;
 }
 
-// Code taken from: https://learn.microsoft.com/en-us/windows/win32/seccng/creating-a-hash-with-cng
-_Check_return_ _Ret_maybenull_
-static PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash) {
-	BCRYPT_ALG_HANDLE       hAlg = BCRYPT_SHA256_ALG_HANDLE; 
-	BCRYPT_HASH_HANDLE      hHash = NULL;
-	NTSTATUS                status = STATUS_UNSUCCESSFUL;
-	DWORD                   cbData = 0, cbHash = 0, cbHashObject = 0;
-	PBYTE                   pbHashObject = NULL;
-	PBYTE                   pbHash = NULL;
-
-	*outCbHash = 0;
-
-	//calculate the size of the buffer to hold the hash object
-	if (!NT_SUCCESS(status = BCryptGetProperty(
-		hAlg,
-		BCRYPT_OBJECT_LENGTH,
-		(PBYTE)&cbHashObject,
-		sizeof(DWORD),
-		&cbData,
-		0)))
-	{
-		log_error_winapi(status, MODULE_NAME, __func__, "BCryptGetProperty() failed!");
-		goto Cleanup;
-	}
-
-	//allocate the hash object on the heap
-	pbHashObject = (PBYTE)HeapAlloc(GetProcessHeap(), 0, cbHashObject);
-	if (NULL == pbHashObject)
-	{
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash object", "HeapAlloc() failed!");
-		goto Cleanup;
-	}
-
-	//calculate the length of the hash
-	if (!NT_SUCCESS(status = BCryptGetProperty(
-		hAlg,
-		BCRYPT_HASH_LENGTH,
-		(PBYTE)&cbHash,
-		sizeof(DWORD),
-		&cbData,
-		0)))
-	{
-		log_error_winapi(status, MODULE_NAME, __func__, "BCryptGetProperty() failed!");
-		goto Cleanup;
-	}
-
-	//allocate the hash buffer on the heap
-	pbHash = (PBYTE)HeapAlloc(GetProcessHeap(), 0, cbHash);
-	if (NULL == pbHash)
-	{
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash buffer", "HeapAlloc() failed!");
-		goto Cleanup;
-	}
-
-	//create a hash
-	if (!NT_SUCCESS(status = BCryptCreateHash(
-		hAlg,
-		&hHash,
-		pbHashObject,
-		cbHashObject,
-		NULL,
-		0,
-		0)))
-	{
-		log_error_winapi(status, MODULE_NAME, __func__, "BCryptCreateHash() failed!");
-		goto Cleanup;
-	}
-
-
-	// -- Hash the file --
-	BYTE buffer[MEMORY_SIZE_8KB];
-	DWORD bytesRead;
-
-	SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
-
-	BOOL ok; // used to check if the ReadFile call was successfull or not
-	while (TRUE) {
-		ok = ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL);
-
-		if (!ok) {
-			log_error(FILE_READING_ERR, MODULE_NAME, __func__, "ReadFile failed", "");
-			goto Cleanup;
-		}
-
-		if (bytesRead == 0) break; // reached EOF
-
-		status = BCryptHashData(hHash, buffer, bytesRead, 0);
-		if (!NT_SUCCESS(status)) {
-			log_error_winapi(status, MODULE_NAME, __func__, "Failed to hash module.");
-			goto Cleanup;
-		}
-	}
-
-	//close the hash
-	if (!NT_SUCCESS(status = BCryptFinishHash(
-		hHash,
-		pbHash,
-		cbHash,
-		0)))
-	{
-		log_error_winapi(status, MODULE_NAME, __func__, "BCryptFinishHash() failed!");
-		goto Cleanup;
-	}
-
-	*outCbHash = cbHash;
-
-	if (hHash) BCryptDestroyHash(hHash);
-	if (pbHashObject) HeapFree(GetProcessHeap(), 0, pbHashObject);
-	SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
-
-	return pbHash;
-Cleanup:
-	if (hHash) BCryptDestroyHash(hHash);
-	if (pbHashObject) HeapFree(GetProcessHeap(), 0, pbHashObject);
-	if (pbHash) HeapFree(GetProcessHeap(), 0, pbHash);
-
-	return NULL;
-}
-
 _Check_return_ 
 IntegrityStatus add_integrity_check_to_startup() {
 	WCHAR integrityCheckerPath[MAX_PATH] = { 0 };
@@ -560,7 +441,6 @@ IntegrityStatus store_integrity_data() {
 	}
 
 	// -- 3. Compute integrity information for files
-	// TODO: Compute hash for all the files and all the other data in one loop
 	for (size_t i = 0; i < ARRAYSIZE(modulesToVerify); i++) {
 		DWORD cbHash = 0;
 		PBYTE hash = create_hash(modInfo[i].hFile, &cbHash);
@@ -584,31 +464,33 @@ IntegrityStatus store_integrity_data() {
 		info.fileSize = fileSize.QuadPart;
 		StringCchCopyW(info.modulePath, MAX_PATH, modInfo[i].modulePath);
 
-		// -- 1. Write hash size (cbHash)
-		if (!WriteFile(hIntegDataFile, &cbHash, sizeof(cbHash), NULL, NULL)) {
-			log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-				"WriteFile failed");
-			HeapFree(GetProcessHeap(), 0, hash);
-			goto IntegCleanup;
-		}
+		DWORD bytesWritten = 0;
 
-		// -- 2. Write hash bytes
-		if (!WriteFile(hIntegDataFile, hash, cbHash, NULL, NULL)) {
-			log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-				"WriteFile failed");
-			HeapFree(GetProcessHeap(), 0, hash);
-			goto IntegCleanup;
-		}
+        // -- 1. Write hash size (cbHash)
+        if (!WriteFile(hIntegDataFile, &cbHash, sizeof(cbHash), &bytesWritten, NULL)) {
+            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
+                "WriteFile failed for hash size");
+            HeapFree(GetProcessHeap(), 0, hash);
+            goto IntegCleanup;
+        }
 
-		// -- 2. Write info struct
-		if (!WriteFile(hIntegDataFile, &info, sizeof(info), NULL, NULL)) {
-			log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-				"WriteFile failed");
-			HeapFree(GetProcessHeap(), 0, hash);
-			goto IntegCleanup;
-		}
+        // -- 2. Write hash bytes
+        if (!WriteFile(hIntegDataFile, hash, cbHash, &bytesWritten, NULL)) {
+            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
+                "WriteFile failed for hash bytes");
+            HeapFree(GetProcessHeap(), 0, hash);
+            goto IntegCleanup;
+        }
 
-		HeapFree(GetProcessHeap(), 0, hash);
+        // -- 3. Write info struct
+        if (!WriteFile(hIntegDataFile, &info, sizeof(info), &bytesWritten, NULL)) {
+            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
+                "WriteFile failed for info struct");
+            HeapFree(GetProcessHeap(), 0, hash);
+            goto IntegCleanup;
+        }
+
+        HeapFree(GetProcessHeap(), 0, hash);
 	}
 
 	if (modInfo) free(modInfo);
