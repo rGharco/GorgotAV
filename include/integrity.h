@@ -16,8 +16,23 @@
 #pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "GorgotLib.lib")
 
-// From GorgotLib.lib
+// ---------------------------------------------------
+// From GorgotLib
+// ---------------------------------------------------
+
+// Caller must free with HeapFree(GetProcessHeap(), 0, ...)
+_Check_return_
 PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash);
+
+_Check_return_
+BOOL construct_appdata_file_path(_Out_writes_z_(MAX_PATH) WCHAR* outPath, _In_z_ const WCHAR* basePath, _In_z_ const WCHAR* fileName);
+
+_Check_return_ 
+BOOL construct_antivirus_appdata_path(_Out_writes_z_(MAX_PATH) WCHAR* outPath);
+
+// ---------------------------------------------------
+// From GorgotLib
+// ---------------------------------------------------
 
 typedef enum IntegrityStatus {
 	INTEGRITY_CHECK_AT_STARTUP_ERR,

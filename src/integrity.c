@@ -15,7 +15,7 @@ LPCWSTR INTEGRITY_CHECKER_EXEC_NAME = L"GorgotIntegrityChecker.exe";
 LPCWSTR INTEGRITY_LOG_FILE_NAME = L"integrity_log.txt";
 LPCWSTR INTEGRITY_BINARY_FILE_NAME = L"integrity.bin";
 
-LPCWSTR modulesToVerify[] = {
+static LPCWSTR modulesToVerify[] = {
 	L"ntoskrnl.exe",
 	L"hal.dll",
 	L"winload.exe",
@@ -62,10 +62,12 @@ LPCWSTR modulesToVerify[] = {
 };
 
 typedef struct IntegrityData {
-	LONGLONG fileSize;
-	time_t timestamp;
-	_Field_z_ WCHAR modulePath[MAX_PATH];
-}IntegrityData;
+    DWORD cbHash;
+    BYTE  hash[SHA256_HASH_SIZE];
+    LONGLONG fileSize;
+    time_t timestamp;
+    _Field_z_ WCHAR modulePath[MAX_PATH];
+} IntegrityData;
 
 typedef struct ModuleInfo {
 	HANDLE hFile;
@@ -213,48 +215,6 @@ static BOOL set_integrity_on_startup(_In_ const HKEY hStartupKey, _In_z_ const W
 // ---------------------------------------------------
 // Integrity Check AppData functions
 // ---------------------------------------------------
-
-_Check_return_
-static BOOL construct_appdata_file_path(_Out_writes_z_(MAX_PATH) WCHAR* outPath, _In_z_ const WCHAR* basePath, _In_z_ const WCHAR* fileName) {
-	HRESULT res = 0;
-	
-	res = StringCchCopyW(outPath, MAX_PATH, basePath);
-
-	if (FAILED(res)) {
-		log_error_winapi(res, MODULE_NAME, __func__, "Failed to construct log file path!");
-		return FALSE;
-	}
-
-	res = PathCchAppend(outPath, MAX_PATH, fileName);
-
-	if (FAILED(res)) {
-		log_error_winapi(res, MODULE_NAME, __func__, "Failed to append log file name to path!");
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-_Check_return_ 
-static BOOL construct_antivirus_appdata_path(_Out_writes_z_(MAX_PATH) WCHAR* outPath) {
-	HRESULT res = 0;
-
-	// -- 1. Obtain AppData\Local path to create GorgotAV folder at
-	res = SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, outPath);
-	if (res != S_OK) {
-		log_error_winapi(res, MODULE_NAME, __func__, "Failed to find path to AppData\\Local folder\n");
-		return FALSE;
-	}
-
-	// -- 2. Append the GorgotAV folder to create the full path.
-	res = PathCchAppend(outPath, MAX_PATH, L"GorgotAV");
-	if (res != S_OK) {
-		log_error_winapi(res, MODULE_NAME, __func__, "Failed to construct path to AppData\\Local\\GorgotAV folder\n");
-		return FALSE;
-	}
-
-	return TRUE;
-}
 
 _Check_return_
 static BOOL create_log_file(_In_z_ const WCHAR* antivirusFilePath) {
@@ -450,6 +410,13 @@ IntegrityStatus store_integrity_data() {
 			continue;
 		}
 
+		if (cbHash != SHA256_HASH_SIZE) {
+			log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__,
+				"Unexpected hash length", NO_DESCRIPTION);
+			HeapFree(GetProcessHeap(), 0, hash);
+			continue;
+		}
+
 		LARGE_INTEGER fileSize = { 0 };
 
 		if (!GetFileSizeEx(modInfo[i].hFile, &fileSize)) {
@@ -460,35 +427,24 @@ IntegrityStatus store_integrity_data() {
 
 		IntegrityData info = { 0 };
 
-		info.timestamp = time(NULL);
+		info.cbHash = cbHash;
+		memcpy(info.hash, hash, SHA256_HASH_SIZE);	
 		info.fileSize = fileSize.QuadPart;
+		info.timestamp = time(NULL);
+
 		StringCchCopyW(info.modulePath, MAX_PATH, modInfo[i].modulePath);
 
 		DWORD bytesWritten = 0;
 
-        // -- 1. Write hash size (cbHash)
-        if (!WriteFile(hIntegDataFile, &cbHash, sizeof(cbHash), &bytesWritten, NULL)) {
-            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-                "WriteFile failed for hash size");
-            HeapFree(GetProcessHeap(), 0, hash);
-            goto IntegCleanup;
-        }
+        if (!WriteFile(hIntegDataFile, &info, sizeof(info), &bytesWritten, NULL) ||
+			bytesWritten != sizeof(info)) {
 
-        // -- 2. Write hash bytes
-        if (!WriteFile(hIntegDataFile, hash, cbHash, &bytesWritten, NULL)) {
-            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-                "WriteFile failed for hash bytes");
-            HeapFree(GetProcessHeap(), 0, hash);
-            goto IntegCleanup;
-        }
+			log_error_winapi(GetLastError(), MODULE_NAME, __func__,
+				"WriteFile failed for IntegrityData record");
 
-        // -- 3. Write info struct
-        if (!WriteFile(hIntegDataFile, &info, sizeof(info), &bytesWritten, NULL)) {
-            log_error_winapi(GetLastError(), MODULE_NAME, __func__,
-                "WriteFile failed for info struct");
-            HeapFree(GetProcessHeap(), 0, hash);
-            goto IntegCleanup;
-        }
+			HeapFree(GetProcessHeap(), 0, hash);
+			goto IntegCleanup;
+		}
 
         HeapFree(GetProcessHeap(), 0, hash);
 	}
@@ -568,7 +524,7 @@ IntegrityStatus remove_integrity_check_from_startup() {
 		}
 	}
 
-	log_success("Successfully integrity checking");
+	log_success("Successfully removed integrity checking");
 
 	if (hKey) RegCloseKey(hKey);
 
