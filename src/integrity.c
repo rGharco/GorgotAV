@@ -56,7 +56,6 @@ static LPCWSTR modulesToVerify[] = {
 	L"werfaultsecure.exe",
 	L"esent.dll",
 	L"sfc.exe",
-	L"dism.exe",
 	L"wuauclt.exe",
 	L"usoclient.exe"
 };

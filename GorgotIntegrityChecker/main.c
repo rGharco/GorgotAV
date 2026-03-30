@@ -19,8 +19,8 @@
 #pragma comment(lib, "GorgotLib.lib")
 
 #define SHA256_LENGTH 32
-#define NO_DETAILS_A ""
-#define NO_DETAILS_W L""
+#define NO_DETAILS_A NULL
+#define NO_DETAILS_W NULL
 
 // ---------------------------------------------------
 // From GorgotLib
@@ -103,7 +103,6 @@ static const LPCWSTR modulesToVerify[] = {
 	L"werfaultsecure.exe",
 	L"esent.dll",
 	L"sfc.exe",
-	L"dism.exe",
 	L"wuauclt.exe",
 	L"usoclient.exe"
 };
@@ -117,7 +116,7 @@ static void show_error_msg() {
 		return;
 	}
 
-	int choice = MessageBoxW(
+	MessageBoxW(
         NULL,                          
         L"There was an error while trying to verify your device integrity. Check the logs for extended information!",  
         L"Integrity Checking",             
@@ -131,8 +130,6 @@ static void log_error_integrity(_In_z_ const char* restrict function, _In_z_ con
 		printf("Error trying to construct log file path!\n");
 		return;
 	}
-
-	wprintf(L"Path to log file: %ls\n", logPath);
 
 	FILE* logFile = _wfopen(logPath, L"a");
 
@@ -158,9 +155,25 @@ static void log_error_integrity(_In_z_ const char* restrict function, _In_z_ con
     if (detailsA) {
         fprintf(logFile, ": %s\n", detailsA);
     }
+	// This is AI fix to handle _wfprintf, mixing _wfprintf with fprintf causes undefined behavior so this is a workaround for the moment 
 	else if (detailsW) {
-		_fwprintf_p(logFile, L": %s\n", detailsW);
-	} 
+		char buffer[512];
+		size_t converted = 0;
+
+		errno_t err = wcstombs_s(
+			&converted,
+			buffer,
+			sizeof(buffer),
+			detailsW,
+			_TRUNCATE
+		);
+
+		if (err == 0) {
+			fprintf(logFile, ": %s\n", buffer);
+		} else {
+			fprintf(logFile, ": [WIDE STRING CONVERSION FAILED]\n");
+		}
+	}
 	else {
         fprintf(logFile, "\n");
     }
@@ -330,6 +343,8 @@ static BOOL verify_binary_format_tampering(_In_ size_t inIntegDataCount, _In_rea
 	return TRUE;
 }
 
+// TODO: Fix warnings regarding signed/unsigned match
+// TODO: Fix warning regarding potential ReadFile() loss of data and decide a pattern if file size > something than use LARGE_INTEGER else DWORD 
 _Check_return_ 
 static BOOL verify_integrity() {
 	ModuleInfo* modInfo = NULL;

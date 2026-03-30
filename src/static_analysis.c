@@ -8,9 +8,6 @@
 #define SHA256_HASH_BYTES 32
 #define SHA256_HASH_HEX_STRING_SIZE  ((SHA256_HASH_BYTES * 2) + 1) // + 1 for NULL terminator
 
-#define STATUS_SUCCESS ((NTSTATUS)0x00000000)
-#define STATUS_UNSUCCESSFUL ((NTSTATUS)0xC0000001L)
-
 // Used to verify the status of a hashing operation from bcrypt.h in the main hashing function
 #define CHECK_HASH_STATUS(status, msg, details) \
 	if (status != STATUS_SUCCESS) { \
@@ -29,16 +26,15 @@
 	\
 
 #define BYTE_SIZE 256 
-#define MEMORY_SIZE_8KB 8192 // Used to compute a hash by reading chunks of 8KB and then hashing them
 #define SECTION_NAME_LENGTH 9 // 8 + null terminator
 
-// -- Global variables --
-
-BCRYPT_ALG_HANDLE hAlg = NULL;
-ULONG hashObjectLength = 0; // nr of bytes bytes for SHA256 hash object
-ULONG hashDigestLength = 0; // the size of SHA256 hash string 
-HANDLE hProcessHeap = NULL;
-HANDLE hFile = NULL;
+typedef struct SectionInfo{
+	_Field_size_(SECTION_NAME_LENGTH) char sectionName[SECTION_NAME_LENGTH];
+	double entropy;
+	DWORD startAddr;
+	DWORD endAddr;
+	bool isExec;
+}SectionInfo;
 
 typedef enum CERTIFICATE_STATUS CERTIFICATE_STATUS;
 
@@ -136,9 +132,60 @@ static double calculate_entropy(const PFileContext fc) {
 	return entropy;
 }
 
+static double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr) {
+	// Counts how many times a byte appears to the make its probability. As per Shanon's entropy function we need the probability
+	// of an event happening (p(xi)) * log_2(p(xi))
+	if (!dataPtr || size == 0)
+        return 0.0;
+
+    unsigned long long byteCount[BYTE_SIZE] = { 0 };
+
+    for (uint64_t i = 0; i < size; i++) {
+        byteCount[(unsigned char)dataPtr[i]]++;
+    }
+
+    double entropy = 0.0;
+
+    for (int i = 0; i < 256; i++) {
+        if (byteCount[i] == 0) continue;
+
+        double p = (double)byteCount[i] / (double)size;
+        entropy -= p * log2(p);
+    }
+
+	return entropy;
+}
+
 //-----------------------------------------------------------
 // PE format functions
 //-----------------------------------------------------------
+
+_Check_return_ _Ret_maybenull_
+static SectionInfo* get_sect_info(_In_ const PFileContext fc) {
+	WORD nrOfSections = get_nr_of_sections(fc);
+	PIMAGE_SECTION_HEADER ptrSections = get_ptr_to_section_start(fc);
+	BYTE* baseAddress = (BYTE*)get_base_address(fc);
+
+	SectionInfo* sectInfo = calloc(nrOfSections, sizeof(*sectInfo));
+	if (sectInfo == NULL) {
+		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory to SectionInfo struct.", "get_sect_info() failed!");
+		return NULL;
+	}
+
+	for (WORD i = 0; i < nrOfSections; i++) {
+		memcpy(sectInfo[i].sectionName, ptrSections[i].Name, SECTION_NAME_LENGTH - 1); // they do not contain NULL terminator by default
+		sectInfo[i].sectionName[SECTION_NAME_LENGTH - 1] = '\0';
+
+		if (ptrSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) sectInfo[i].isExec = true;
+
+		sectInfo[i].entropy = memory_entropy_calculation(ptrSections[i].SizeOfRawData, baseAddress + ptrSections[i].PointerToRawData);
+
+		sectInfo[i].startAddr = ptrSections[i].VirtualAddress;
+		sectInfo[i].endAddr = ptrSections[i].VirtualAddress + max(ptrSections[i].Misc.VirtualSize, ptrSections[i].SizeOfRawData);
+	}
+
+	return sectInfo;
+}
 
 // -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
 static char** get_suspicious_executable_sections(const PFileContext fc, WORD* outCount) {
@@ -328,6 +375,11 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 
 	PBYTE hash = create_hash(get_file_handle(fc), NULL);
 	char* sha256Hash = calloc(1, SHA256_HASH_HEX_STRING_SIZE);
+
+	if (sha256Hash == NULL) {
+		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for SHA256 hash.", "calloc() failed!");
+	}
+
 	binaryToHexHash(hash, sha256Hash);
 
 	result->sha256Hash = sha256Hash;
