@@ -7,6 +7,7 @@
 
 #define SHA256_HASH_BYTES 32
 #define SHA256_HASH_HEX_STRING_SIZE  ((SHA256_HASH_BYTES * 2) + 1) // + 1 for NULL terminator
+#define HIGH_ENTROPY_THRESHOLD 7.2 
 
 // Used to verify the status of a hashing operation from bcrypt.h in the main hashing function
 #define CHECK_HASH_STATUS(status, msg, details) \
@@ -73,6 +74,14 @@ static const char* certStatusStr(enum CERTIFICATE_STATUS status) {
 		}
 }
 
+
+// -- Standard executable sections name
+const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
+const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
+const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
+
+int indicators = 0; // contains the number of found indicators so far
+
 //-----------------------------------------------------------
 // Hashing
 //-----------------------------------------------------------
@@ -98,39 +107,6 @@ static void binaryToHexHash(_In_ const PBYTE restrict pHash, _Out_writes_z_(SHA2
 //-----------------------------------------------------------
 // Entropy
 //-----------------------------------------------------------
-
-static double calculate_entropy(const PFileContext fc) {
-	// Counts how many times a byte appears to the make its probability. As per Shanon's entropy function we need the probability
-	// of an event happening (p(xi)) * log_2(p(xi))
-	unsigned long long byteCount[BYTE_SIZE] = { 0 };
-	BYTE* baseAddress = get_base_address(fc);
-
-	LARGE_INTEGER fileSize = { 0 };
-
-	if (!GetFileSizeEx(get_file_handle(fc), &fileSize)) {
-		DWORD err = GetLastError();
-		log_error_winapi(err, MODULE_NAME, __func__, "GetFileSizeEx() failed!");
-
-		return -1;
-	}
-
-	LONGLONG size = fileSize.QuadPart;
-
-	for (LONGLONG i = 0; i < size; i++) {
-		byteCount[baseAddress[i]]++;
-	}
-
-	double entropy = 0;
-
-	for (int i = 0; i < BYTE_SIZE; i++) {
-		if (byteCount[i] == 0) continue;
-
-		double frequency = (double)byteCount[i] / (double)size;
-		entropy -= frequency * log2(frequency);
-	}
-
-	return entropy;
-}
 
 static double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr) {
 	// Counts how many times a byte appears to the make its probability. As per Shanon's entropy function we need the probability
@@ -160,6 +136,36 @@ static double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BY
 // PE format functions
 //-----------------------------------------------------------
 
+static DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
+    WORD n = get_nr_of_sections(fc);
+    PIMAGE_SECTION_HEADER sections = get_ptr_to_section_start(fc);
+
+    for (WORD i = 0; i < n; i++) {
+
+        DWORD va = sections[i].VirtualAddress;
+        DWORD size = sections[i].Misc.VirtualSize;
+
+        // Some binaries use SizeOfRawData instead if VirtualSize is 0
+        if (size == 0)
+            size = sections[i].SizeOfRawData;
+
+        if (rva >= va && rva < va + size) {
+            return (rva - va) + sections[i].PointerToRawData;
+        }
+    }
+
+    // fallback: invalid RVA
+    return 0;
+}
+
+static inline bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName) {
+	if (strcmp(sectionName, TEXT_SECTION_NAME) == 0) return true;
+	if (strcmp(sectionName, TEXT_BSS_SECTION_NAME) == 0) return true;
+	if (strcmp(sectionName, CODE_SECTION_NAME) == 0) return true;
+
+	return false;
+}
+
 _Check_return_ _Ret_maybenull_
 static SectionInfo* get_sect_info(_In_ const PFileContext fc) {
 	WORD nrOfSections = get_nr_of_sections(fc);
@@ -176,10 +182,8 @@ static SectionInfo* get_sect_info(_In_ const PFileContext fc) {
 		memcpy(sectInfo[i].sectionName, ptrSections[i].Name, SECTION_NAME_LENGTH - 1); // they do not contain NULL terminator by default
 		sectInfo[i].sectionName[SECTION_NAME_LENGTH - 1] = '\0';
 
-		if (ptrSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) sectInfo[i].isExec = true;
-
+		sectInfo[i].isExec = (ptrSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
 		sectInfo[i].entropy = memory_entropy_calculation(ptrSections[i].SizeOfRawData, baseAddress + ptrSections[i].PointerToRawData);
-
 		sectInfo[i].startAddr = ptrSections[i].VirtualAddress;
 		sectInfo[i].endAddr = ptrSections[i].VirtualAddress + max(ptrSections[i].Misc.VirtualSize, ptrSections[i].SizeOfRawData);
 	}
@@ -187,61 +191,147 @@ static SectionInfo* get_sect_info(_In_ const PFileContext fc) {
 	return sectInfo;
 }
 
-// -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
-static char** get_suspicious_executable_sections(const PFileContext fc, WORD* outCount) {
+static void appending_file_infection_check(_In_ const PFileContext fc, _In_ const SectionInfo* sectInfo) {
 	WORD nrOfSections = get_nr_of_sections(fc);
-	PIMAGE_SECTION_HEADER ptrSections = get_ptr_to_section_start(fc);
+	PeFormat peFormat = get_pe_format(fc);
+	DWORD aep = peFormat == PE32 ? get_optional_header_32(fc)->OptionalHeader.AddressOfEntryPoint : get_optional_header_64(fc)->OptionalHeader.AddressOfEntryPoint;
 
-	char** foundSections = (char**)malloc(sizeof(char*) * nrOfSections);
-
-	if (foundSections == NULL || errno != 0) {
-		log_error(errno, MODULE_NAME, __func__, strerror(errno), "Could not allocate memory for section names!");
-	}
-
+	bool insideSection = false;
+	DWORD aepOffset = rva_to_raw(fc, aep);
+	
 	for (WORD i = 0; i < nrOfSections; i++) {
-		foundSections[i] = malloc(sizeof(char) * SECTION_NAME_LENGTH);
+		if (insideSection) break;  
 
-		if (foundSections[i] == NULL || errno != 0) {
-			log_error(errno, MODULE_NAME, __func__,strerror(errno),"Could not allocate memory for individual section names!");
+		if (aep >= sectInfo[i].startAddr && aep < sectInfo[i].endAddr) {
+			// AEP is inside this section
+			insideSection = true;
+
+			bool isStandardExec = is_standard_exec_sect(sectInfo[i].sectionName);
+
+			// -- 1. Verify section name + permissions
+			if (sectInfo[i].isExec && !isStandardExec) {
+				indicators += 5;
+				LOG_VERBOSE(config.outFile,"[INDICATOR] Executable non-standard section detected (exec + non-standard name)\n");
+			}
+			
+			// -- 2. Verify entropy 
+			if (sectInfo[i].entropy >= HIGH_ENTROPY_THRESHOLD) {
+				indicators += 3;
+				LOG_VERBOSE(config.outFile,"[INDICATOR] High entropy section detected (possible packed/encrypted code)\n");
+			}
+
+			// -- 3. Verify JMP instructions or PUSH and RET combination
+			BYTE* baseAddr = get_base_address(fc);
+			baseAddr += aepOffset;
+			
+			// -- 3.1 Verify JMP to another section
+			if (baseAddr[0] == 0xE9) {
+				INT32 rel = *(INT32*)(baseAddr + 1);
+				DWORD targetRVA = aep + 5 + rel;
+
+				int dstSection = -1;
+
+				for (WORD j = 0; j < nrOfSections; j++) {
+					if (targetRVA >= sectInfo[j].startAddr &&
+						targetRVA < sectInfo[j].endAddr) {
+						dstSection = j;
+						break;
+					}
+				}
+
+				if (dstSection == -1) {
+					indicators += 10;
+					LOG_VERBOSE(config.outFile,"[INDICATOR] JMP target is outside all sections\n");
+				}
+				else if (dstSection != i) {
+					if (!is_standard_exec_sect(sectInfo[dstSection].sectionName) && sectInfo[dstSection].isExec) {
+						printf("[INDICATOR] Highly suspicious, JMP redirects execution to a non-standard executable section!");
+						indicators += 1;
+					}
+					indicators += 1;
+					LOG_VERBOSE(config.outFile,"[INDICATOR] JMP redirects execution to a different section\n");
+				}
+			}
+			if (baseAddr[0] == 0xE8 && baseAddr[5] == 0xC3) {
+				indicators += 5;
+				LOG_VERBOSE(config.outFile,"[INDICATOR] Detected CALL + RET sequence\n");
+			}
 		}
 	}
 
-	const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
-	const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
-	const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
+	if (insideSection == false) {
+		indicators += 10;
+		LOG_VERBOSE(config.outFile,"[INDICATOR] AEP is outside all sections (possible overlay or infection stub)\n");
+		return;
+	}
 
-	bool isNormalExecSection;
-	WORD sectFound = 0;
-	char* currSlot = (*foundSections);
+	return;
+}
 
-	// IMAGE_SIZEOF_SHORT_NAME is a macro defined by winnt.h and it stores the length of a section name 
+// -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
+_Check_return_ _Ret_maybenull_
+static char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount) {
+	*outCount = 0;
+
+	WORD nrOfSections = get_nr_of_sections(fc);
+	PIMAGE_SECTION_HEADER ptrToSections = get_ptr_to_section_start(fc);
+
+	if (ptrToSections == NULL) {
+		return NULL;
+	}
+
+	WORD count = 0;
 	for (WORD i = 0; i < nrOfSections; i++) {
-		isNormalExecSection = false;
-
-		if (memcmp(ptrSections->Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
-			isNormalExecSection = true;
+		bool ok = memcmp(ptrToSections[i].Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
+				  memcmp(ptrToSections[i].Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
+				  memcmp(ptrToSections[i].Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0;
+		
+		if ((ptrToSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) && !ok) {
+			count++;
 		}
-		else if (memcmp(ptrSections->Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
-			isNormalExecSection = true;
-		}
-		else if (memcmp(ptrSections->Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0) {
-			isNormalExecSection = true;
-		}
-
-		if ((ptrSections->Characteristics & IMAGE_SCN_MEM_EXECUTE) && !isNormalExecSection) {
-			memcpy(currSlot, ptrSections->Name, IMAGE_SIZEOF_SHORT_NAME);
-			currSlot[IMAGE_SIZEOF_SHORT_NAME] = '\0';
-			currSlot += SECTION_NAME_LENGTH;
-
-			sectFound++;
-		}
-
-		ptrSections++;
 	}
 
-	*outCount = sectFound;
+	if (count == 0) {
+		return NULL;
+	}
 
-	return foundSections;
+	char** result = malloc(count * sizeof(*result));
+	if (result == NULL) {
+		return NULL;
+	}
+
+	char* buffer = malloc(count * SECTION_NAME_LENGTH);
+    if (buffer == NULL) {
+        free(result);
+        return NULL;
+    }
+
+	WORD idx = 0;
+	for (WORD i = 0; i < nrOfSections; i++) {
+		bool ok = memcmp(ptrToSections[i].Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
+				  memcmp(ptrToSections[i].Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
+				  memcmp(ptrToSections[i].Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0;
+		
+		if ((ptrToSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) && !ok) {
+			char* section = buffer + (idx * SECTION_NAME_LENGTH);
+
+            memcpy(section, ptrToSections[i].Name, IMAGE_SIZEOF_SHORT_NAME);
+            section[IMAGE_SIZEOF_SHORT_NAME] = '\0';
+
+            result[idx] = section;
+            idx++;
+		}
+	}
+
+	*outCount = count;
+	return result;
+}
+
+static void free_suspicious_sections(char** sections) {
+    if (!sections) return;
+
+    free(sections[0]); // contiguous buffer
+    free(sections);
 }
 
 // Verify the certificate existance using Authenticode policy provider. We check if there is any signature present for a file
@@ -387,20 +477,24 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	// -- Entropy calculation
 	LOG_VERBOSE(config.outFile, "Starting entropy calculation...");
 
-	double entropy = calculate_entropy(fc);
-
-	if (entropy <= 0) {
-		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
-		return;
+	LARGE_INTEGER lInt;
+	if (!GetFileSizeEx(get_file_handle(fc), &lInt)) {
+		log_error_winapi(GetLastError(), MODULE_NAME, __func__, "Failed to get file size for entropy calculation! GetFileSizeEx() failed!");
 	}
+	else {
+		double entropy = memory_entropy_calculation(lInt.QuadPart, get_base_address(fc));
+		if (entropy <= 0) {
+			log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
+			return;
+		}
 
-	result->entropy = entropy;
+		result->entropy = entropy;
+	}
 
 	// -- PE Header parsing
 	LOG_VERBOSE(config.outFile, "Parsing PE headers...");
 
 	PEStatus status = parse_pe(fc);
-
 	if (status != PE_STATUS_OK) {
 		printf("[INFO] The file is not an executable! Proceeding with file type identification!\n");
 		// TODO: Implement different checking mechanisms that work for files that do not respect the PE format
@@ -412,24 +506,24 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	WORD suspiciousSectCount = 0;
 	char** suspiciousSect = get_suspicious_executable_sections(fc, &suspiciousSectCount);
 
-	if (suspiciousSectCount > 0) {
-		result->execSections = suspiciousSect;
-		result->suspiciousSectCount = suspiciousSectCount;
-	}
-	else {
-		result->execSections = 0; // for reporting, we must tell the user what we found either way
+	result->suspiciousSectCount = suspiciousSectCount;
+	result->execSections = suspiciousSect; 
 
-		for (WORD i = 0; i < get_nr_of_sections(fc); i++) {
-			free(suspiciousSect[i]);
-		}
-
-		free(suspiciousSect); 
-	}
 
 	LOG_VERBOSE(config.outFile, "Checking digital certificate status...");
 
 	CERTIFICATE_STATUS certificateStatus = check_certificate_status(fc); 
 	result->certificateStatus = certStatusStr(certificateStatus);	
+
+	SectionInfo* sectInfo = get_sect_info(fc);
+	if (sectInfo == NULL) {
+		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to retrieve section information.", "Cannot proceed with further analysis");
+		return;
+	}
+	
+	appending_file_infection_check(fc, sectInfo);
+
+	printf("Found indicators: %d\n", indicators);
 	
 	return;
 }

@@ -164,6 +164,13 @@ PIMAGE_NT_HEADERS64 get_optional_header_64(const PFileContext fc) {
     return fc->nt.nt64;
 }
 
+void* get_optional_header(void* nt_headers, int format) {
+    if (format == PE32)
+        return get_optional_header_32(nt_headers);
+    else
+        return get_optional_header_64(nt_headers);
+}
+
 //----------------------------------------------------------------------------------
 // Setters
 //----------------------------------------------------------------------------------
