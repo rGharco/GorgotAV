@@ -5,9 +5,16 @@
 
 #define MODULE_NAME "static_analysis.c"
 
+#define MEMORY_512B 512 
+#define MEMORY_100KB 102400 
 #define SHA256_HASH_BYTES 32
 #define SHA256_HASH_HEX_STRING_SIZE  ((SHA256_HASH_BYTES * 2) + 1) // + 1 for NULL terminator
 #define HIGH_ENTROPY_THRESHOLD 7.2 
+
+#define JMP_OPCODE 0xE9
+#define CALL_OPCODE 0xE8
+#define RET_OPCODE 0xC3
+#define e_lfanew 0x3C
 
 // Used to verify the status of a hashing operation from bcrypt.h in the main hashing function
 #define CHECK_HASH_STATUS(status, msg, details) \
@@ -225,36 +232,40 @@ static void appending_file_infection_check(_In_ const PFileContext fc, _In_ cons
 			baseAddr += aepOffset;
 			
 			// -- 3.1 Verify JMP to another section
-			if (baseAddr[0] == 0xE9) {
-				INT32 rel = *(INT32*)(baseAddr + 1);
-				DWORD targetRVA = aep + 5 + rel;
+			for (int k = 0; k < 50; k++) {
+				if (baseAddr[k] == JMP_OPCODE) {
+					INT32 rel = *(INT32*)(baseAddr + k + 1);
+					DWORD targetRVA = aep + k + 5 + rel;
 
-				int dstSection = -1;
+					int dstSection = -1;
 
-				for (WORD j = 0; j < nrOfSections; j++) {
-					if (targetRVA >= sectInfo[j].startAddr &&
-						targetRVA < sectInfo[j].endAddr) {
-						dstSection = j;
-						break;
+					for (WORD j = 0; j < nrOfSections; j++) {
+						if (targetRVA >= sectInfo[j].startAddr &&
+							targetRVA < sectInfo[j].endAddr) {
+							dstSection = j;
+							break;
+						}
 					}
-				}
 
-				if (dstSection == -1) {
-					indicators += 10;
-					LOG_VERBOSE(config.outFile,"[INDICATOR] JMP target is outside all sections\n");
-				}
-				else if (dstSection != i) {
-					if (!is_standard_exec_sect(sectInfo[dstSection].sectionName) && sectInfo[dstSection].isExec) {
-						printf("[INDICATOR] Highly suspicious, JMP redirects execution to a non-standard executable section!");
+					if (dstSection == -1) {
+						indicators += 10;
+						LOG_VERBOSE(config.outFile,"[INDICATOR] JMP target is outside all sections\n");
+					}
+					else if (dstSection != i) {
+						if (!is_standard_exec_sect(sectInfo[dstSection].sectionName) && sectInfo[dstSection].isExec) {
+							printf("[INDICATOR] Highly suspicious, JMP redirects execution to a non-standard executable section!");
+							indicators += 1;
+						}
 						indicators += 1;
+						LOG_VERBOSE(config.outFile,"[INDICATOR] JMP redirects execution to a different section\n");
 					}
-					indicators += 1;
-					LOG_VERBOSE(config.outFile,"[INDICATOR] JMP redirects execution to a different section\n");
 				}
-			}
-			if (baseAddr[0] == 0xE8 && baseAddr[5] == 0xC3) {
-				indicators += 5;
-				LOG_VERBOSE(config.outFile,"[INDICATOR] Detected CALL + RET sequence\n");
+
+				// -- CALL + RET pattern
+				if (baseAddr[k] == CALL_OPCODE && baseAddr[k + 5] == RET_OPCODE) {
+					indicators += 5;
+					LOG_VERBOSE(config.outFile,"[INDICATOR] Detected CALL + RET sequence\n");
+				}
 			}
 		}
 	}
@@ -327,11 +338,108 @@ static char** get_suspicious_executable_sections(_In_ const PFileContext fc, WOR
 	return result;
 }
 
-static void free_suspicious_sections(char** sections) {
+static void free_suspicious_sections(_In_ char** sections) {
     if (!sections) return;
 
     free(sections[0]); // contiguous buffer
     free(sections);
+}
+
+_Check_return_ 
+static bool detect_overlay_exist(_In_ const PFileContext fc, _Out_ DWORD* restrict overlaySize, _Out_ DWORD* restrict overlayOffset ) {
+	WORD nrOfSections = get_nr_of_sections(fc);
+	PIMAGE_SECTION_HEADER ptrToSections = get_ptr_to_section_start(fc);
+
+	*overlaySize = 0;
+	*overlayOffset = 0;
+
+	DWORD maxEnd = 0;
+	for (WORD i = 0; i < nrOfSections; i++) {
+		DWORD end = ptrToSections[i].PointerToRawData + ptrToSections[i].SizeOfRawData;
+		if (end > maxEnd) { 
+			maxEnd = end;
+		}
+	}
+
+	LARGE_INTEGER lFileSize;
+	if (!GetFileSizeEx(get_file_handle(fc), &lFileSize)) {
+		log_error_winapi(GetLastError(), MODULE_NAME, __func__, "Failed to get file size for overlay detection!, GetFileSizeEx() failed!");
+		return false;
+	}
+
+	if (lFileSize.QuadPart > maxEnd) {
+		DWORD size = (DWORD)(lFileSize.QuadPart - maxEnd);
+		if (size < MEMORY_512B) {
+			return false; // Noise filter for padding/alignment overlays
+		}
+
+		*overlaySize = (DWORD)(lFileSize.QuadPart - maxEnd);
+		*overlayOffset = maxEnd;
+		return true;
+	}
+
+	return false;
+}
+
+static void check_overlay_anomalies(_In_ const PFileContext fc) {
+	DWORD overlaySize = 0;
+	DWORD overlayOffset = 0;
+
+	if (!detect_overlay_exist(fc, &overlaySize, &overlayOffset)) {
+		return;
+	}
+
+	BYTE* overlayAddress = (BYTE*)get_base_address(fc) + overlayOffset;
+
+	if (overlaySize > MEMORY_100KB) {
+		indicators += 5;
+		LOG_VERBOSE(config.outFile, "Large overlay section detected...");
+	}
+
+	if (overlaySize > 1024) {
+		double entropy = memory_entropy_calculation(overlaySize, overlayAddress);
+
+		if (entropy > 7.2) {
+			indicators += 4;
+			LOG_VERBOSE(config.outFile, "High entropy overlay detected...");
+		}
+	}
+	
+	// -- Check for 'MZ' signature
+	const int MZ_SCAN_LIMIT = 2028;
+	DWORD scanLimit = min(overlaySize, MZ_SCAN_LIMIT);
+
+	for (DWORD i = 0; i + 1 < scanLimit; i++) {
+		if (overlayAddress[i] == 'M' && overlayAddress[i + 1] == 'Z') {
+			indicators += 6;
+
+			DWORD peOffset = *(DWORD*)(overlayAddress + i + e_lfanew);
+			if (peOffset < 0x1000 && i + peOffset + 4 < overlaySize) {
+				if (!memcmp(overlayAddress + i + peOffset, "PE\0\0", 4)) {
+					indicators += 10;
+					LOG_VERBOSE(config.outFile, "[INDICATOR] Valid embedded PE detected in overlay!\n");
+				}
+			}
+			break;
+		}
+	}
+	// -- Check for ZIP archive signature (PK)
+	const int PK_SCAN_LIMIT = 1024;
+	for (DWORD i = 0; i + 1 < min(PK_SCAN_LIMIT, overlaySize); i++) {
+		if (overlayAddress[i] == 'P' && overlayAddress[i + 1] == 'K') {
+			indicators += 5;
+			LOG_VERBOSE(config.outFile, "Embedded ZIP detected in overlay...");
+			break;
+		}
+	}
+
+	// -- Check for JMP or CALL opcodes
+	for (DWORD i = 0; i < min(50, overlaySize); i++) {
+        if (overlayAddress[i] == JMP_OPCODE || overlayAddress[i] == CALL_OPCODE) {
+            indicators += 3;
+            break;
+        }
+    }
 }
 
 // Verify the certificate existance using Authenticode policy provider. We check if there is any signature present for a file
@@ -509,7 +617,6 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	result->suspiciousSectCount = suspiciousSectCount;
 	result->execSections = suspiciousSect; 
 
-
 	LOG_VERBOSE(config.outFile, "Checking digital certificate status...");
 
 	CERTIFICATE_STATUS certificateStatus = check_certificate_status(fc); 
@@ -521,7 +628,9 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 		return;
 	}
 	
+	LOG_VERBOSE(config.outFile, "Checking for file infection strategies...");
 	appending_file_infection_check(fc, sectInfo);
+	check_overlay_anomalies(fc);
 
 	printf("Found indicators: %d\n", indicators);
 	
