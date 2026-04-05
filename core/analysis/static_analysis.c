@@ -143,7 +143,7 @@ static double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BY
 // PE format functions
 //-----------------------------------------------------------
 
-static DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
+DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
     WORD n = get_nr_of_sections(fc);
     PIMAGE_SECTION_HEADER sections = get_ptr_to_section_start(fc);
 
@@ -367,14 +367,36 @@ static bool detect_overlay_exist(_In_ const PFileContext fc, _Out_ DWORD* restri
 		return false;
 	}
 
-	if (lFileSize.QuadPart > maxEnd) {
-		DWORD size = (DWORD)(lFileSize.QuadPart - maxEnd);
+	// -- Verify certificate existance and remove the bytes of it to not be treated as overlay
+	DWORD certOffset = 0;
+	DWORD certSize = 0;
+	PeFormat peFormat = get_pe_format(fc);
+
+	if (peFormat == PE32) {
+		PIMAGE_NT_HEADERS32 nt = get_optional_header_32(fc);
+		certOffset = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].VirtualAddress;
+		certSize   = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].Size;
+	}
+	else {
+		PIMAGE_NT_HEADERS64 nt = get_optional_header_64(fc);
+		certOffset = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].VirtualAddress;
+		certSize   = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].Size;
+	}
+
+	DWORD effectiveEnd = maxEnd;
+
+	if (certOffset > maxEnd && certSize > 0) {
+		effectiveEnd = certOffset + certSize;
+	}
+
+	if (lFileSize.QuadPart > effectiveEnd) {
+		DWORD size = (DWORD)(lFileSize.QuadPart - effectiveEnd);
 		if (size < MEMORY_512B) {
 			return false; // Noise filter for padding/alignment overlays
 		}
 
-		*overlaySize = (DWORD)(lFileSize.QuadPart - maxEnd);
-		*overlayOffset = maxEnd;
+		*overlaySize = (DWORD)(lFileSize.QuadPart - effectiveEnd);
+		*overlayOffset = effectiveEnd;
 		return true;
 	}
 
@@ -630,7 +652,12 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	
 	LOG_VERBOSE(config.outFile, "Checking for file infection strategies...");
 	appending_file_infection_check(fc, sectInfo);
+
+	LOG_VERBOSE(config.outFile, "Checking overlay existance and anomalies...");
 	check_overlay_anomalies(fc);
+
+	LOG_VERBOSE(config.outFile, "Checking import table...");
+	import_table_analysis(fc);
 
 	printf("Found indicators: %d\n", indicators);
 	
