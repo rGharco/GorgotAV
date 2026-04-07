@@ -15,12 +15,31 @@
 #pragma comment (lib, "bcrypt")
 #pragma comment (lib, "wintrust")
 
+#define SECTION_NAME_LENGTH 9 // 8 + null terminator
+
+typedef struct SectionInfo{
+	_Field_size_(SECTION_NAME_LENGTH) char sectionName[SECTION_NAME_LENGTH];
+	double entropy;
+	DWORD startAddr;
+	DWORD endAddr;
+	bool isExec;
+}SectionInfo;
+
 // From GorgotLib.lib
 PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash);
 
 // -- From section_analysis.c
 void import_table_analysis(_In_ const PFileContext fc);
+_Check_return_ _Ret_maybenull_
+char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount);
+_Check_return_ 
+bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName);
+_Check_return_ _Ret_maybenull_
+SectionInfo* get_sect_info(_In_ const PFileContext fc);
+
 
 // -- Static Analysis functions
 void static_analysis(const PFileContext fc, AnalysisResult* result);
+_Check_return_
+double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr);
 DWORD rva_to_raw(const PFileContext fc, DWORD rva);

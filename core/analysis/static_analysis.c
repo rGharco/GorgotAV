@@ -1,5 +1,4 @@
 #include "static_analysis.h"
-#include "arena.h"
 #include "pe_utils.h"
 #include "logging.h"
 
@@ -16,12 +15,10 @@
 #define RET_OPCODE 0xC3
 #define e_lfanew 0x3C
 
-// Used to verify the status of a hashing operation from bcrypt.h in the main hashing function
-#define CHECK_HASH_STATUS(status, msg, details) \
-	if (status != STATUS_SUCCESS) { \
-		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, msg, details); \
-		goto Cleanup; \
-	} \
+// -- Standard executable sections name
+static const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
+static const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
+static const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
 
 // Any hWVTStateData must be released by a call with close. 
 #define CERTIFICATE_VERIFICATION_CLEANUP(WinTrustData, verificationStatus) \
@@ -34,15 +31,6 @@
 	\
 
 #define BYTE_SIZE 256 
-#define SECTION_NAME_LENGTH 9 // 8 + null terminator
-
-typedef struct SectionInfo{
-	_Field_size_(SECTION_NAME_LENGTH) char sectionName[SECTION_NAME_LENGTH];
-	double entropy;
-	DWORD startAddr;
-	DWORD endAddr;
-	bool isExec;
-}SectionInfo;
 
 typedef enum CERTIFICATE_STATUS CERTIFICATE_STATUS;
 
@@ -82,11 +70,6 @@ static const char* certStatusStr(enum CERTIFICATE_STATUS status) {
 }
 
 
-// -- Standard executable sections name
-const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
-const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
-const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
-
 int indicators = 0; // contains the number of found indicators so far
 
 //-----------------------------------------------------------
@@ -115,7 +98,8 @@ static void binaryToHexHash(_In_ const PBYTE restrict pHash, _Out_writes_z_(SHA2
 // Entropy
 //-----------------------------------------------------------
 
-static double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr) {
+_Check_return_ 
+double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr) {
 	// Counts how many times a byte appears to the make its probability. As per Shanon's entropy function we need the probability
 	// of an event happening (p(xi)) * log_2(p(xi))
 	if (!dataPtr || size == 0)
@@ -163,39 +147,6 @@ DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
 
     // fallback: invalid RVA
     return 0;
-}
-
-static inline bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName) {
-	if (strcmp(sectionName, TEXT_SECTION_NAME) == 0) return true;
-	if (strcmp(sectionName, TEXT_BSS_SECTION_NAME) == 0) return true;
-	if (strcmp(sectionName, CODE_SECTION_NAME) == 0) return true;
-
-	return false;
-}
-
-_Check_return_ _Ret_maybenull_
-static SectionInfo* get_sect_info(_In_ const PFileContext fc) {
-	WORD nrOfSections = get_nr_of_sections(fc);
-	PIMAGE_SECTION_HEADER ptrSections = get_ptr_to_section_start(fc);
-	BYTE* baseAddress = (BYTE*)get_base_address(fc);
-
-	SectionInfo* sectInfo = calloc(nrOfSections, sizeof(*sectInfo));
-	if (sectInfo == NULL) {
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory to SectionInfo struct.", "get_sect_info() failed!");
-		return NULL;
-	}
-
-	for (WORD i = 0; i < nrOfSections; i++) {
-		memcpy(sectInfo[i].sectionName, ptrSections[i].Name, SECTION_NAME_LENGTH - 1); // they do not contain NULL terminator by default
-		sectInfo[i].sectionName[SECTION_NAME_LENGTH - 1] = '\0';
-
-		sectInfo[i].isExec = (ptrSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
-		sectInfo[i].entropy = memory_entropy_calculation(ptrSections[i].SizeOfRawData, baseAddress + ptrSections[i].PointerToRawData);
-		sectInfo[i].startAddr = ptrSections[i].VirtualAddress;
-		sectInfo[i].endAddr = ptrSections[i].VirtualAddress + max(ptrSections[i].Misc.VirtualSize, ptrSections[i].SizeOfRawData);
-	}
-
-	return sectInfo;
 }
 
 static void appending_file_infection_check(_In_ const PFileContext fc, _In_ const SectionInfo* sectInfo) {
@@ -277,65 +228,6 @@ static void appending_file_infection_check(_In_ const PFileContext fc, _In_ cons
 	}
 
 	return;
-}
-
-// -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
-_Check_return_ _Ret_maybenull_
-static char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount) {
-	*outCount = 0;
-
-	WORD nrOfSections = get_nr_of_sections(fc);
-	PIMAGE_SECTION_HEADER ptrToSections = get_ptr_to_section_start(fc);
-
-	if (ptrToSections == NULL) {
-		return NULL;
-	}
-
-	WORD count = 0;
-	for (WORD i = 0; i < nrOfSections; i++) {
-		bool ok = memcmp(ptrToSections[i].Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
-				  memcmp(ptrToSections[i].Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
-				  memcmp(ptrToSections[i].Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0;
-		
-		if ((ptrToSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) && !ok) {
-			count++;
-		}
-	}
-
-	if (count == 0) {
-		return NULL;
-	}
-
-	char** result = malloc(count * sizeof(*result));
-	if (result == NULL) {
-		return NULL;
-	}
-
-	char* buffer = malloc(count * SECTION_NAME_LENGTH);
-    if (buffer == NULL) {
-        free(result);
-        return NULL;
-    }
-
-	WORD idx = 0;
-	for (WORD i = 0; i < nrOfSections; i++) {
-		bool ok = memcmp(ptrToSections[i].Name, TEXT_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
-				  memcmp(ptrToSections[i].Name, TEXT_BSS_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0 ||
-				  memcmp(ptrToSections[i].Name, CODE_SECTION_NAME, IMAGE_SIZEOF_SHORT_NAME) == 0;
-		
-		if ((ptrToSections[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) && !ok) {
-			char* section = buffer + (idx * SECTION_NAME_LENGTH);
-
-            memcpy(section, ptrToSections[i].Name, IMAGE_SIZEOF_SHORT_NAME);
-            section[IMAGE_SIZEOF_SHORT_NAME] = '\0';
-
-            result[idx] = section;
-            idx++;
-		}
-	}
-
-	*outCount = count;
-	return result;
 }
 
 static void free_suspicious_sections(_In_ char** sections) {
@@ -466,7 +358,7 @@ static void check_overlay_anomalies(_In_ const PFileContext fc) {
 
 // Verify the certificate existance using Authenticode policy provider. We check if there is any signature present for a file
 // but the existance itself does not give any clear indicator to whether or not a file is malicious. Context matters, just 
-// because a file is not signed with a certificate does not mean it is malicious (e.g Steam games are unsigned)
+// because a file is not signed with a certificate does not mean it is malicious (e.g Some Steam games are unsigned)
 static CERTIFICATE_STATUS check_certificate_status(const PFileContext fc) {
 	WINTRUST_FILE_INFO fileData; // struct used to verify an individual file
 	memset(&fileData, 0, sizeof(fileData));
