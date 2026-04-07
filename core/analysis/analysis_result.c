@@ -22,11 +22,7 @@ void destroy_analysis_result(AnalysisResult* result) {
 			free(result->sha256Hash);
 		}
 		if (result->suspiciousSectCount > 0) {
-			for (WORD i = 0; i < result->suspiciousSectCount; i++) {
-				free(result->execSections[i]);
-			}
-
-			free(result->execSections);
+			free_suspicious_sections(result->execSections);
 		}
 		free(result);
 	}

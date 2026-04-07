@@ -2,6 +2,7 @@
 
 #include "logging.h"
 #include "file_context.h"
+#include "static_analysis.h"
 
 #include <stdio.h>
 #include <stdlib.h>

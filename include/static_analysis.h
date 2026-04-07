@@ -17,6 +17,8 @@
 
 #define SECTION_NAME_LENGTH 9 // 8 + null terminator
 
+typedef enum CERTIFICATE_STATUS CERTIFICATE_STATUS;
+
 typedef struct SectionInfo{
 	_Field_size_(SECTION_NAME_LENGTH) char sectionName[SECTION_NAME_LENGTH];
 	double entropy;
@@ -32,10 +34,15 @@ PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash);
 void import_table_analysis(_In_ const PFileContext fc);
 _Check_return_ _Ret_maybenull_
 char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount);
+void free_suspicious_sections(_In_ char** sections);
 _Check_return_ 
 bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName);
 _Check_return_ _Ret_maybenull_
 SectionInfo* get_sect_info(_In_ const PFileContext fc);
+
+// -- From certificate_analysis.c
+const char* certStatusStr(enum CERTIFICATE_STATUS status);
+CERTIFICATE_STATUS check_certificate_status(const PFileContext fc);
 
 
 // -- Static Analysis functions

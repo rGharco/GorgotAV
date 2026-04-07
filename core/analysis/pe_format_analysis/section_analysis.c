@@ -67,6 +67,13 @@ char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outC
 	return result;
 }
 
+void free_suspicious_sections(_In_ char** sections) {
+    if (!sections) return;
+
+    free(sections[0]); // contiguous buffer
+    free(sections);
+}
+
 void import_table_analysis(const PFileContext fc) {
     LPVOID baseAddress = get_base_address(fc);
     PeFormat peFormat = get_pe_format(fc);
