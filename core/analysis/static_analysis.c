@@ -371,6 +371,11 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	LOG_VERBOSE(config.outFile, "Checking import table...");
 	import_table_analysis(fc);
 
+	LOG_VERBOSE(config.outFile, "Checking field malformations...");
+	if (!verify_checksum_validity(fc)) {
+		indicators += 2;
+	}
+
 	printf("Found indicators: %d\n", indicators);
 	
 	return;

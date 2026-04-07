@@ -92,12 +92,12 @@ void import_table_analysis(const PFileContext fc) {
     }
 
     if (importRVA == 0) {
-        LOG_VERBOSE(config.outFile, "Invalid import table (possible packing or manual import resolution)!\n");
+        LOG_VERBOSE(config.outFile, "Invalid import table (possible packing or manual import resolution)!");
         return;
     }
 
     if (importSize == 0) {
-        LOG_VERBOSE(config.outFile, "Invalid import table size(possible packing or manual import resolution)!\n");
+        LOG_VERBOSE(config.outFile, "Invalid import table size(possible packing or manual import resolution)!");
         return;
     }
 

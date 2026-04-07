@@ -3,6 +3,7 @@
 #include "cli.h"
 
 #define MODULE_NAME "file_context.c"    
+#define _CRT_SECURE_NO_WARNINGS_
 
 //----------------------------------------------------------------------------------
 // Struct definition
@@ -33,9 +34,11 @@ PFileContext create_file_context(LPCSTR fileName) {
     PFileContext fileContext = calloc(1, sizeof(FileContext));
 
     if (fileContext == NULL || errno != 0) {
+        char errBuf[128];
+        strerror_s(errBuf, sizeof(errBuf), errno);
         log_error(errno, MODULE_NAME, __func__,
             "Could not initialize memory for fileContext",
-            strerror(errno));
+            errBuf);
         return NULL;
     }
 

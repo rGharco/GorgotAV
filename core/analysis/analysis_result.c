@@ -6,9 +6,12 @@ AnalysisResult* create_analysis_result(const PFileContext fc) {
 	AnalysisResult* result = (AnalysisResult*)calloc(1, sizeof(AnalysisResult));
 
 	if (!result || errno != 0) {
-		log_error(errno, strerror(errno), MODULE_NAME, __func__, "");
-		
-		return NULL;
+		char errBuf[128];
+        strerror_s(errBuf, sizeof(errBuf), errno);
+        log_error(errno, MODULE_NAME, __func__,
+            "",
+            errBuf);
+        return NULL;
 	}
 
 	result->fc = fc;

@@ -44,6 +44,10 @@ SectionInfo* get_sect_info(_In_ const PFileContext fc);
 const char* certStatusStr(enum CERTIFICATE_STATUS status);
 CERTIFICATE_STATUS check_certificate_status(const PFileContext fc);
 
+// -- From field_malformations.c
+_Check_return_
+bool verify_checksum_validity(_In_ const PFileContext fc);
+
 
 // -- Static Analysis functions
 void static_analysis(const PFileContext fc, AnalysisResult* result);
