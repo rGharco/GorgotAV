@@ -9,6 +9,7 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments
     //-----------------------------------------------------------
 
+    ui_init();
     init_config(&config);
 
     ParseStatus argParseStatus = parse_args(argc, argv);
