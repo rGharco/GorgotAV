@@ -74,7 +74,7 @@ void free_suspicious_sections(_In_ char** sections) {
     free(sections);
 }
 
-void import_table_analysis(const PFileContext fc) {
+void import_table_analysis(_In_ const PFileContext fc) {
     LPVOID baseAddress = get_base_address(fc);
     PeFormat peFormat = get_pe_format(fc);
 
@@ -117,6 +117,25 @@ void import_table_analysis(const PFileContext fc) {
 
         imp++;
     }
+}
+
+_Check_return_
+bool has_tls_callbacks(_In_ const PFileContext fc) {
+    PeFormat peFormat = get_pe_format(fc);
+    DWORD importRVA = 0;
+    DWORD importSize = 0;
+
+    if (peFormat == PE32) {
+        PIMAGE_NT_HEADERS32 nt = get_optional_header_32(fc);
+        importRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+        importSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+    } else {
+        PIMAGE_NT_HEADERS64 nt = get_optional_header_64(fc);
+        importRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+        importSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+    }
+
+    return importRVA != 0 && importSize != 0;
 }
 
 _Check_return_ 

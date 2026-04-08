@@ -376,6 +376,11 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 		indicators += 2;
 	}
 
+	LOG_VERBOSE(config.outFile, "Checking TLS Callbacks...");
+	if (has_tls_callbacks(fc)) {
+		indicators += 2;
+	}
+
 	printf("Found indicators: %d\n", indicators);
 	
 	return;

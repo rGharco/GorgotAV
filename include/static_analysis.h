@@ -39,6 +39,8 @@ _Check_return_
 bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName);
 _Check_return_ _Ret_maybenull_
 SectionInfo* get_sect_info(_In_ const PFileContext fc);
+_Check_return_
+bool has_tls_callbacks(_In_ const PFileContext fc);
 
 // -- From certificate_analysis.c
 const char* certStatusStr(enum CERTIFICATE_STATUS status);
