@@ -30,9 +30,6 @@
 // Maximum length for a long option string (e.g. "--output"), not including the '=' or parameter.
 #define MAX_OPT_STR_LEN 64
 
-#define BOX_H (ui_ansi_enabled ? "\xe2\x94\x80" : "-")
-#define WIDTH 64
-
 // Icons
 #define ICON_LONG   "\xe2\xac\xa1"   // ⬡  long-only flags  (startup group)
 #define ICON_SHORT  "\xe2\x97\x88"   // ◈  short+long pairs (general group)
@@ -54,20 +51,6 @@ void ui_init(void) {
 // ---------------------------------------------------------------------------
 // Help command construction
 // ---------------------------------------------------------------------------
-
-static void section(_In_ const char* label) {
-    int llen = (int)strlen(label);
-
-    int right = WIDTH - (llen + 1);
-    if (right < 0) right = 0;
-
-    printf("%s%s%s ", CYAN_LT, label, RST);
-    printf("%s", BLUE_DK);
-    for (int i = 0; i < right; i++) {
-        fputs(BOX_H, stdout);
-    }
-    printf("%s\n", RST);
-}
 
 // A single flag row.
 // icon      — ICON_LONG or ICON_SHORT
@@ -97,11 +80,6 @@ static void flag_row(_In_ const char* restrict icon, _In_ const char* restrict s
 }
 
 static void show_help() {
-    printf("%s%sGrogotAV %s", BOLD, CYAN_LT, RST);
-    printf("%sv1.0.0%s", BLUE_DK, RST);
-    printf("  %sIntegrity checker & antivirus utility%s", MUTED, RST);
-    printf("\n\n");
-
     // ── usage row ──────────────────────────────────────────────────────────
     printf("Usage: %sGrogotAV.exe%s ", CYAN_LT, RST);
     printf("<target>");
@@ -227,8 +205,9 @@ static int open_output_file(const char* path) {
         perror(path);
         return -1;
     }
-    LOG_VERBOSE(config.outFile, "Opened output file for appending.");
+
     config.outFile = outFile;
+
     return 0;
 }
 
@@ -243,8 +222,10 @@ static int get_opt(const Option* option, const char* param) {
         return 0;
 
     case OUTPUT:
-        return open_output_file(param);
-
+        if(open_output_file(param) != 0) {
+            exit(EXIT_FAILURE);
+        }
+        break;
     case HELP:
         show_help();
         exit(EXIT_SUCCESS);

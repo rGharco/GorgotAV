@@ -120,13 +120,13 @@ static void appending_file_infection_check(_In_ const PFileContext fc, _In_ cons
 			// -- 1. Verify section name + permissions
 			if (sectInfo[i].isExec && !isStandardExec) {
 				indicators += 5;
-				LOG_VERBOSE(config.outFile,"[INDICATOR] Executable non-standard section detected (exec + non-standard name)\n");
+				LOG_VERBOSE_SUSPICIOUS_INDICATOR("Executable non-standard section detected (exec + non-standard name)\n", sectInfo[i].sectionName);
 			}
 			
 			// -- 2. Verify entropy 
 			if (sectInfo[i].entropy >= HIGH_ENTROPY_THRESHOLD) {
 				indicators += 3;
-				LOG_VERBOSE(config.outFile,"[INDICATOR] High entropy section detected (possible packed/encrypted code)\n");
+				LOG_VERBOSE_SUSPICIOUS_INDICATOR("High entropy section detected (possible packed/encrypted code)\n", sectInfo[i].sectionName);
 			}
 
 			// -- 3. Verify JMP instructions or PUSH and RET combination
@@ -159,14 +159,14 @@ static void appending_file_infection_check(_In_ const PFileContext fc, _In_ cons
 							indicators += 1;
 						}
 						indicators += 1;
-						LOG_VERBOSE(config.outFile,"[INDICATOR] JMP redirects execution to a different section\n");
+						LOG_VERBOSE_SUSPICIOUS_INDICATOR("JMP redirects execution to a different section\n", "");
 					}
 				}
 
 				// -- CALL + RET pattern
 				if (baseAddr[k] == CALL_OPCODE && baseAddr[k + 5] == RET_OPCODE) {
 					indicators += 5;
-					LOG_VERBOSE(config.outFile,"[INDICATOR] Detected CALL + RET sequence\n");
+					LOG_VERBOSE_SUSPICIOUS_INDICATOR("Detected CALL + RET sequence\n", "");
 				}
 			}
 		}
@@ -251,7 +251,7 @@ static void check_overlay_anomalies(_In_ const PFileContext fc) {
 
 	if (overlaySize > MEMORY_100KB) {
 		indicators += 5;
-		LOG_VERBOSE(config.outFile, "Large overlay section detected...");
+		LOG_VERBOSE_SUSPICIOUS_INDICATOR("Large overlay section detected...", "");
 	}
 
 	if (overlaySize > 1024) {
@@ -259,7 +259,7 @@ static void check_overlay_anomalies(_In_ const PFileContext fc) {
 
 		if (entropy > 7.2) {
 			indicators += 4;
-			LOG_VERBOSE(config.outFile, "High entropy overlay detected...");
+			LOG_VERBOSE_SUSPICIOUS_INDICATOR("High entropy overlay detected...", "");
 		}
 	}
 	
@@ -303,7 +303,7 @@ static void check_overlay_anomalies(_In_ const PFileContext fc) {
 // We do not free the pointers allocated in this function as their lifetime is dependent of AnalaysisResult 
 void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	// -- Hashing 
-	LOG_VERBOSE(config.outFile, "Starting static analysis...");
+	show_analysis_steps_banner("Analysis Steps");
 
 	PBYTE hash = create_hash(get_file_handle(fc), NULL);
 	char* sha256Hash = calloc(1, SHA256_HASH_HEX_STRING_SIZE);
@@ -381,7 +381,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 		indicators += 2;
 	}
 
-	printf("Found indicators: %d\n", indicators);
+	result->indicators = indicators;
 	
 	return;
 }

@@ -24,14 +24,6 @@ static const char* strError(int loggingCode) {
     }
 }
 
-void log_verbose_stdout(const char* msg) {
-    printf("[VERBOSE] %s\n", msg);
-}
-
-void log_verbose_file(const char* msg) {
-    fprintf(config.outFile, "[VERBOSE] %s\n", msg);
-}
-
 void log_error(int code, const char* module, const char* function, const char* message, const char* details) {
     time_t currentTime;
     time(&currentTime);
@@ -95,25 +87,50 @@ void log_warning(const char* module, const char* function, const char* message, 
 }  
 
 void log_analysis_result(const AnalysisResult* result) {
-	fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
+    show_analysis_steps_banner("Analysis Result");
 
-	fprintf(config.outFile, "\t> %-30s: %-s\n", "Sha256 Hash", result->sha256Hash);
-	fprintf(config.outFile, "\t> %-30s: %-.6f\n", "Entropy", result->entropy);
-    fprintf(config.outFile, "\t> %-30s: %-d\n", "Suspicious sections found", result->suspiciousSectCount);
+    fprintf(config.outFile, "%-5s> %-30s: %-u\n", "" ,"Indicators", result->indicators);
+
+	fprintf(config.outFile, "%-5s> %-30s: %-s\n", "" ,"Sha256 Hash", result->sha256Hash);
+	fprintf(config.outFile, "%-5s> %-30s: %-.6f\n", "" ,"Entropy", result->entropy);
+    fprintf(config.outFile, "%-5s> %-30s: %-d\n", "" ,"Suspicious sections found", result->suspiciousSectCount);
 
     if (result->suspiciousSectCount > 0) {
         for (WORD i = 0; i < result->suspiciousSectCount; i++) {
-            fprintf(config.outFile, "\t> %-15s: %-s -> has executable flag set!\n", "Section", result->execSections[i]);
+            fprintf(config.outFile, "%-5s> %-15s: %-s -> has executable flag set!\n", "" ,"Section", result->execSections[i]);
         }
     }
 
-    fprintf(config.outFile, "\t> %-30s: %-s\n", "Digital certificate status", result->certificateStatus);
-
-    fprintf(config.outFile, "\n-------------------- RESULTS --------------------\n\n");
+    fprintf(config.outFile, "%-5s> %-30s: %-s\n", "" ,"Digital certificate status", result->certificateStatus);
 }
 
 void log_success(_In_z_ const char* msg) {
     fprintf(config.outFile, "[SUCCESS] %s\n", msg);
 }
 
+void section(_In_ const char* label) {
+    int llen = (int)strlen(label);
 
+    int right = WIDTH - (llen + 1);
+    if (right < 0) right = 0;
+
+    printf("%s%s%s ", CYAN_LT, label, RST);
+    printf("%s", BLUE_DK);
+    for (int i = 0; i < right; i++) {
+        fputs(BOX_H, stdout);
+    }
+    printf("%s\n", RST);
+}
+
+void show_analysis_steps_banner(_In_z_ const char* label) {
+    if (config.outFile == stdout && config.flags & FLAG_VERBOSE) {
+        section(label);          
+    }              
+}
+
+void show_app_banner() {
+    printf("%s%sGrogotAV %s", BOLD, CYAN_LT, RST);
+    printf("%sv1.0.0%s", BLUE_DK, RST);
+    printf("  %sIntegrity checker & antivirus utility%s", MUTED, RST);
+    printf("\n");
+}

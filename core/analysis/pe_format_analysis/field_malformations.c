@@ -33,13 +33,13 @@ bool verify_checksum_validity(_In_ const PFileContext fc) {
     if (peFormat == PE32) {
         PIMAGE_NT_HEADERS32 ntHeaders = get_optional_header_32(fc);
         if (ntHeaders->OptionalHeader.CheckSum != checksum) {
-            LOG_VERBOSE(config.outFile, "Checksum missmatch found!");
+            LOG_VERBOSE_SUSPICIOUS_INDICATOR("Checksum missmatch found!", "");
             return false;
         }
     } else {
         PIMAGE_NT_HEADERS64 ntHeaders = get_optional_header_64(fc);
         if (ntHeaders->OptionalHeader.CheckSum != checksum) {
-            LOG_VERBOSE(config.outFile, "Checksum missmatch found!");
+            LOG_VERBOSE_SUSPICIOUS_INDICATOR("Checksum missmatch found!", "");
             return false;
         }
     }

@@ -5,6 +5,7 @@
 #include "static_analysis.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #define SHA256_HASH_HEX_STRING_SIZE  ((SHA256_HASH_BYTES * 2) + 1) // + 1 for NULL terminator
@@ -17,6 +18,7 @@ typedef struct AnalysisResult {
     char* certificateStatus;
     float confidenceScore;
     WORD suspiciousSectCount;
+    uint8_t indicators;
 } AnalysisResult;
 
 AnalysisResult* create_analysis_result(const PFileContext fc);

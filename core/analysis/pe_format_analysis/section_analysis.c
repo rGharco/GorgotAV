@@ -92,12 +92,12 @@ void import_table_analysis(_In_ const PFileContext fc) {
     }
 
     if (importRVA == 0) {
-        LOG_VERBOSE(config.outFile, "Invalid import table (possible packing or manual import resolution)!");
+        LOG_VERBOSE_SUSPICIOUS_INDICATOR("Invalid import table (possible packing or manual import resolution)!", "");
         return;
     }
 
     if (importSize == 0) {
-        LOG_VERBOSE(config.outFile, "Invalid import table size(possible packing or manual import resolution)!");
+        LOG_VERBOSE_SUSPICIOUS_INDICATOR("Invalid import table size(possible packing or manual import resolution)!", "");
         return;
     }
 
@@ -188,7 +188,7 @@ SectionInfo* get_sect_info(_In_ const PFileContext fc) {
         double entropy = memory_entropy_calculation(rawSize, baseAddress + rawPtr);
 
         if (entropy == 0) {
-            log_warning(MODULE_NAME, __func__, "Entropy is 0 for section", sectInfo[i].sectionName);
+            LOG_VERBOSE_SUSPICIOUS_INDICATOR("Entropy is 0 for section: ", sectInfo[i].sectionName);
         }
 
         sectInfo[i].entropy = entropy ;

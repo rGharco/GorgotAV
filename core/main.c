@@ -8,9 +8,10 @@ int main(int argc, char* argv[]) {
     //-----------------------------------------------------------
     // Parse command line arguments
     //-----------------------------------------------------------
-
+    
     ui_init();
     init_config(&config);
+    show_app_banner();
 
     ParseStatus argParseStatus = parse_args(argc, argv);
 
@@ -18,7 +19,7 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Target: %s\n", config.target);
+    printf("\n%s%sTarget: %s%s\n\n", BOLD, CYAN_LT ,config.target, RST);
 
     //-----------------------------------------------------------
     // Create file context
@@ -39,6 +40,10 @@ int main(int argc, char* argv[]) {
     static_analysis(fileContext, analysisResult);
 
 	log_analysis_result(analysisResult);
+    
+    if (config.outFile != stdout) {
+        printf("%s\n","Analysis results have been saved inside output file!");
+    }
 
     //-----------------------------------------------------------
     // Cleanup

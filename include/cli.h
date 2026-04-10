@@ -12,14 +12,6 @@
 
 #define IS_TTY(f) _isatty(_fileno(f))
 
-#define _A(seq)  (ui_ansi_enabled ? "\033[" seq : "")
-#define RST       _A("0m")
-
-#define BOLD      _A("1m")
-#define CYAN_LT   _A("96m")   // bright cyan  — app name, short flags (-v)
-#define BLUE_DK   _A("34m")   // dark blue    — section headers, icons
-#define MUTED     _A("90m")   // dark gray    — descriptions, dim chrome
-
 typedef struct Option Option;
 
 typedef struct AppConfig {
