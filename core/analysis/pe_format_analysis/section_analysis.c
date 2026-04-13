@@ -74,6 +74,9 @@ void free_suspicious_sections(_In_ char** sections) {
     free(sections);
 }
 
+// TODO: Split import table logic into two parts 
+// - has import table 
+// - import table analysis (dll names and functions)
 void import_table_analysis(_In_ const PFileContext fc) {
     LPVOID baseAddress = get_base_address(fc);
     PeFormat peFormat = get_pe_format(fc);

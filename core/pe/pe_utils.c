@@ -34,7 +34,7 @@ PEStatus parse_pe(PFileContext fc) {
 		set_optional_header_ptr(fc, PE32_PLUS, (LPVOID*)nt64);
 		set_nr_of_sections(fc, nrOfSections);
 		set_sections_ptr(fc, ptrToSectionsStart);
-		set_pe_format(fc, PE32);
+		set_pe_format(fc, PE32_PLUS);
 	}
 	else if (Magic == PE32_SIGNATURE) {
 		PIMAGE_NT_HEADERS32 nt32 = (PIMAGE_NT_HEADERS32)ntHeaders;
@@ -46,7 +46,7 @@ PEStatus parse_pe(PFileContext fc) {
 		set_optional_header_ptr(fc, PE32, (LPVOID*)nt32);
 		set_nr_of_sections(fc, nrOfSections);
 		set_sections_ptr(fc, ptrToSectionsStart);
-		set_pe_format(fc, PE32_PLUS);
+		set_pe_format(fc, PE32);
 	}
 	else {
 		return UNKNOWN_PE_FORMAT_ERR;
