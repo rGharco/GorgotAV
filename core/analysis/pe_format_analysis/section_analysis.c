@@ -119,23 +119,102 @@ void import_table_analysis(_In_ const PFileContext fc) {
     }
 }
 
+_Check_return_ 
+bool peb_walking_detected(_In_ const BYTE* startAddress, _In_ WORD nrBytesToCheck)
+{
+    if (!startAddress || nrBytesToCheck < 6)
+        return false;
+
+    // mov eax, fs:[0x30] -> 64 A1 30 00 00 00
+    const BYTE pebWalkingPattern[] = {0x64, 0xA1, 0x30, 0x00, 0x00, 0x00};
+
+    for (WORD i = 0; i <= nrBytesToCheck - 6; i++) {
+        if (memcmp(startAddress + i, pebWalkingPattern, sizeof(pebWalkingPattern)) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 _Check_return_
-bool has_tls_callbacks(_In_ const PFileContext fc) {
+static bool has_tls_directory(_In_ const PFileContext fc, _Out_  DWORD* restrict outTlsRVA, _Out_ DWORD* restrict outTlsSize) {
     PeFormat peFormat = get_pe_format(fc);
-    DWORD importRVA = 0;
-    DWORD importSize = 0;
+    DWORD tlsRVA = 0;
+    DWORD tlsSize = 0;
 
     if (peFormat == PE32) {
         PIMAGE_NT_HEADERS32 nt = get_optional_header_32(fc);
-        importRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-        importSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+        tlsRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress;
+        tlsSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size;
     } else {
         PIMAGE_NT_HEADERS64 nt = get_optional_header_64(fc);
-        importRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-        importSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+        tlsRVA  = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress;
+        tlsSize = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size;
     }
 
-    return importRVA != 0 && importSize != 0;
+    *outTlsRVA = tlsRVA;
+    *outTlsSize = tlsSize;
+
+    return tlsRVA != 0 && tlsSize != 0;
+}
+
+_Check_return_
+static bool has_tls_callbacks(_In_ const PFileContext fc, _In_ DWORD dirTlsRVA, _Out_ DWORD_PTR** outCallbackArrPtr) {
+    BYTE* baseAddress = get_base_address(fc);
+    DWORD_PTR* callbacksArrayPtr = 0;
+    PeFormat peFormat = get_pe_format(fc);
+    
+    if (peFormat == PE32) {
+        IMAGE_TLS_DIRECTORY32* tls = (IMAGE_TLS_DIRECTORY32*)(baseAddress + rva_to_raw(fc, dirTlsRVA));
+        if (tls->AddressOfCallBacks == 0) return false;
+
+        callbacksArrayPtr = (DWORD_PTR*)(baseAddress + rva_to_raw(fc, tls->AddressOfCallBacks));
+    }
+    else {
+        IMAGE_TLS_DIRECTORY64* tls = (IMAGE_TLS_DIRECTORY64*)(baseAddress + rva_to_raw(fc, dirTlsRVA));
+        if (tls->AddressOfCallBacks == 0) return false;
+
+        callbacksArrayPtr = (DWORD_PTR*)(baseAddress + rva_to_raw(fc, tls->AddressOfCallBacks));
+    }
+
+    if (outCallbackArrPtr) {
+        *outCallbackArrPtr = callbacksArrayPtr;
+    }
+
+    return callbacksArrayPtr != NULL;
+} 
+
+void tls_callback_analysis(_In_ const PFileContext fc, _Inout_ int* indicators) {
+    DWORD tlsDirRVA = 0;
+	DWORD tlsDirSize = 0;
+    DWORD_PTR* callbackArrPtr = NULL;
+    BYTE* base = (BYTE*)get_base_address(fc);
+
+    if (!has_tls_directory(fc, &tlsDirRVA, &tlsDirSize)) return;
+    if (tlsDirRVA == 0 || tlsDirSize == 0) return;
+    if (!has_tls_callbacks(fc, tlsDirRVA, &callbackArrPtr)) return;
+
+    LOG_VERBOSE("TLS Callbacks detected!", "");
+    *indicators += 2;
+    
+    for (int i = 0; callbackArrPtr[i] != 0; i++)
+    {
+        DWORD_PTR rva = (DWORD_PTR)callbackArrPtr[i];
+
+        DWORD raw = rva_to_raw(fc, (DWORD)rva);
+        BYTE* func = base + raw;
+
+        // Inside actual callback function
+        if (peb_walking_detected(func, 200)) {
+            *indicators += 5;
+            LOG_VERBOSE("PEB Walking inside TLS Callback detected", "");
+        }
+
+        // TODO: Section mapping and verification of common heursitic indicators (entropy, name, permissions)
+    }
+
+    return;
 }
 
 _Check_return_ 

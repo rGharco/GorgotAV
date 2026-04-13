@@ -85,18 +85,20 @@ DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
     for (WORD i = 0; i < n; i++) {
 
         DWORD va = sections[i].VirtualAddress;
-        DWORD size = sections[i].Misc.VirtualSize;
 
-        // Some binaries use SizeOfRawData instead if VirtualSize is 0
-        if (size == 0)
+        DWORD size = sections[i].Misc.VirtualSize;
+        if (size < sections[i].SizeOfRawData)
             size = sections[i].SizeOfRawData;
 
-        if (rva >= va && rva < va + size) {
+        DWORD end = va + size;
+        if (end < va)
+            continue;
+
+        if (rva >= va && rva < end) {
             return (rva - va) + sections[i].PointerToRawData;
         }
     }
 
-    // fallback: invalid RVA
     return 0;
 }
 
@@ -377,9 +379,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	}
 
 	LOG_VERBOSE(config.outFile, "Checking TLS Callbacks...");
-	if (has_tls_callbacks(fc)) {
-		indicators += 2;
-	}
+	tls_callback_analysis(fc, &indicators);
 
 	result->indicators = indicators;
 	
