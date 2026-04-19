@@ -251,7 +251,7 @@ static ModuleInfo* get_module_data() {
 	ModuleInfo* modInfo = calloc(ARRAYSIZE(modulesToVerify), sizeof(*modInfo));
 
 	if (modInfo == NULL) {
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for module information!", "calloc() failed!");
+		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for module information!", "calloc() failed!");
 		return NULL;
 	}
 

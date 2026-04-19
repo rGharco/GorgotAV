@@ -8,6 +8,15 @@ static const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', 
 static const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
 static const BYTE CODE_SECTION_NAME[8] = { '.', 'c', 'o', 'd', 'e', '\0', '\0', '\0' };
 
+_Check_return_ 
+bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const BYTE* sectionName) {
+	if (memcmp(sectionName, TEXT_SECTION_NAME, 8) == 0) return true;
+	if (memcmp(sectionName, TEXT_BSS_SECTION_NAME, 8) == 0) return true;
+	if (memcmp(sectionName, CODE_SECTION_NAME, 8) == 0) return true;
+
+	return false;
+}
+
 // -- If a section that is not .text, .textbss, or .code has the exectuable flag set return it in the array --
 _Check_return_ _Ret_maybenull_
 char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount) {
@@ -188,7 +197,7 @@ static bool has_tls_callbacks(_In_ const PFileContext fc, _In_ DWORD dirTlsRVA, 
     return callbacksArrayPtr != NULL;
 } 
 
-void tls_callback_analysis(_In_ const PFileContext fc, _Inout_ int* indicators) {
+void tls_callback_analysis(_In_ const PFileContext fc, _Inout_ int* indicators, _In_ const SectionInfo* sectInfo) {
     DWORD tlsDirRVA = 0;
 	DWORD tlsDirSize = 0;
     DWORD_PTR* callbackArrPtr = NULL;
@@ -214,19 +223,26 @@ void tls_callback_analysis(_In_ const PFileContext fc, _Inout_ int* indicators) 
             LOG_VERBOSE("PEB Walking inside TLS Callback detected", "");
         }
 
-        // TODO: Section mapping and verification of common heursitic indicators (entropy, name, permissions)
+        if (raw >= sectInfo[i].startAddr && raw < sectInfo[i].endAddr)
+        {
+            // Inside current section
+            // TODO: Refactor multiple if statements into scoring function once scoring system is created
+            if (!is_standard_exec_sect(sectInfo[i].sectionName))
+            {
+                *indicators += 10;
+            }
+            if (sectInfo[i].entropyStatus == ENTROPY_SUSPICIOUS) 
+            {
+                *indicators += 5;
+            }
+            if (sectInfo[i].entropyStatus == ENTROPY_HIGHLY_SUSPICIOUS) 
+            {
+                *indicators += 10;
+            }
+        }
     }
 
     return;
-}
-
-_Check_return_ 
-bool is_standard_exec_sect(_In_reads_bytes_(SECTION_NAME_LENGTH) const char* sectionName) {
-	if (strcmp(sectionName, TEXT_SECTION_NAME) == 0) return true;
-	if (strcmp(sectionName, TEXT_BSS_SECTION_NAME) == 0) return true;
-	if (strcmp(sectionName, CODE_SECTION_NAME) == 0) return true;
-
-	return false;
 }
 
 _Check_return_ _Ret_maybenull_
@@ -237,7 +253,7 @@ SectionInfo* get_sect_info(_In_ const PFileContext fc) {
 
 	SectionInfo* sectInfo = calloc(nrOfSections, sizeof(*sectInfo));
 	if (sectInfo == NULL) {
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory to SectionInfo struct.", "get_sect_info() failed!");
+		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory to SectionInfo struct.", "get_sect_info() failed!");
 		return NULL;
 	}
 
@@ -256,7 +272,7 @@ SectionInfo* get_sect_info(_In_ const PFileContext fc) {
         }
 
         if (rawPtr >= fileSize.QuadPart || rawSize > fileSize.QuadPart - rawPtr) {
-            log_warning(MODULE_NAME,__func__, "Skipping entropy for section %s (invalid bounds)", sectInfo[i].sectionName);
+            log_warning(MODULE_NAME,__func__, "Skipping entropy for section %s (invalid bounds)", (char*)sectInfo[i].sectionName);
             continue;
         } 
 
@@ -270,10 +286,11 @@ SectionInfo* get_sect_info(_In_ const PFileContext fc) {
         double entropy = memory_entropy_calculation(rawSize, baseAddress + rawPtr);
 
         if (entropy == 0) {
-            LOG_VERBOSE_SUSPICIOUS_INDICATOR("Entropy is 0 for section: ", sectInfo[i].sectionName);
+            LOG_VERBOSE_SUSPICIOUS_INDICATOR("Entropy is 0 for section: ", (char*)sectInfo[i].sectionName);
         }
 
-        sectInfo[i].entropy = entropy ;
+        sectInfo[i].entropy = entropy;
+        sectInfo[i].entropyStatus = verify_entropy_status(entropy);
 	}
 
 	return sectInfo;

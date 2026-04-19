@@ -11,7 +11,7 @@ static const char* strError(int loggingCode) {
             return "Missing Required Parameter For Flag Error";
         case BAD_FLAG_PARAMETER_FORMAT:
             return "Bad Flag Parameter Format Error";
-        case MEMORY_ALLOCATION_ERR:
+        case LOG_MEMORY_ALLOCATION_ERR:
             return "Memory Allocation Error";
         case HASHING_ERR:
             return "Hashing Error";

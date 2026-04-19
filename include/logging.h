@@ -52,7 +52,7 @@ enum LoggingCodes {
     UNKNOWN_FLAG_ERR, // - defines errors that happen when a CLI flag is unknown, currently not implemented
     MISSING_REQ_PARAMETER_FOR_FLAG, // - defines errors that happen when a CLI flag requires a parameter but none is supplied
     BAD_FLAG_PARAMETER_FORMAT, // - defines errors that happen when parsing CLI flags and finds bad formatted flags 
-    MEMORY_ALLOCATION_ERR, // - defines errors that happen when you allocate memory
+    LOG_MEMORY_ALLOCATION_ERR, // - defines errors that happen when you allocate memory
     HASHING_ERR, // - defines errors that happen when using a hashing algorithm 
     INITIALIZING_ARENA_ERR, // - defines errors that happen upon creating memory arenas
     FILE_READING_ERR, // - defines errors that happen when reading bytes from a file 

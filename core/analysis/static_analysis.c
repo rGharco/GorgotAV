@@ -16,6 +16,9 @@
 #define e_lfanew 0x3C
 #define BYTE_SIZE 256 
 
+#define ENTROPY_TH1 7.2
+#define ENTROPY_TH2 7.6
+
 // -- Standard executable sections name
 static const BYTE TEXT_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', '\0', '\0', '\0' };
 static const BYTE TEXT_BSS_SECTION_NAME[8] = { '.', 't', 'e', 'x', 't', 'b', 's', 's' };
@@ -72,6 +75,13 @@ double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dat
     }
 
 	return entropy;
+}
+
+ENTROPY_STATUS verify_entropy_status(_In_ double entropy) {
+	if (entropy < ENTROPY_TH1) return ENTROPY_NORMAL;
+    if (entropy < ENTROPY_TH2) return ENTROPY_SUSPICIOUS;
+
+    return ENTROPY_HIGHLY_SUSPICIOUS;
 }
 
 //-----------------------------------------------------------
@@ -311,7 +321,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	char* sha256Hash = calloc(1, SHA256_HASH_HEX_STRING_SIZE);
 
 	if (sha256Hash == NULL) {
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for SHA256 hash.", "calloc() failed!");
+		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for SHA256 hash.", "calloc() failed!");
 	}
 
 	binaryToHexHash(hash, sha256Hash);
@@ -333,6 +343,16 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 		}
 
 		result->entropy = entropy;
+
+		if (verify_entropy_status(entropy) == ENTROPY_SUSPICIOUS) 
+		{
+			LOG_VERBOSE_SUSPICIOUS_INDICATOR("Slightly high entropy detected!", "");
+		}
+
+		if(verify_entropy_status(entropy) == ENTROPY_HIGHLY_SUSPICIOUS)
+		{
+			LOG_VERBOSE_SUSPICIOUS_INDICATOR("High entropy detected!", "");
+		}
 	}
 
 	// -- PE Header parsing
@@ -379,7 +399,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	}
 
 	LOG_VERBOSE(config.outFile, "Checking TLS Callbacks...");
-	tls_callback_analysis(fc, &indicators);
+	tls_callback_analysis(fc, &indicators, sectInfo);
 
 	result->indicators = indicators;
 	

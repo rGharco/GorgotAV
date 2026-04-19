@@ -41,7 +41,7 @@ PBYTE create_hash(_In_ HANDLE hFile, _Out_opt_ DWORD* outCbHash) {
 	pbHashObject = (PBYTE)HeapAlloc(GetProcessHeap(), 0, cbHashObject);
 	if (NULL == pbHashObject)
 	{
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash object", "HeapAlloc() failed!");
+		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash object", "HeapAlloc() failed!");
 		goto Cleanup;
 	}
 
@@ -62,7 +62,7 @@ PBYTE create_hash(_In_ HANDLE hFile, _Out_opt_ DWORD* outCbHash) {
 	pbHash = (PBYTE)HeapAlloc(GetProcessHeap(), 0, cbHash);
 	if (NULL == pbHash)
 	{
-		log_error(MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash buffer", "HeapAlloc() failed!");
+		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for hash buffer", "HeapAlloc() failed!");
 		goto Cleanup;
 	}
 
