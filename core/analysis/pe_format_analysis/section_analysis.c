@@ -83,12 +83,9 @@ void free_suspicious_sections(_In_ char** sections) {
     free(sections);
 }
 
-// TODO: Split import table logic into two parts 
-// - has import table 
-// - import table analysis (dll names and functions)
-void import_table_analysis(_In_ const PFileContext fc) {
-    LPVOID baseAddress = get_base_address(fc);
-    PeFormat peFormat = get_pe_format(fc);
+_Check_return_
+static bool has_import_table(_In_ const PFileContext fc, _Out_ DWORD* outImportRVA) {
+    PeFormat peFormat = get_pe_format(fc); 
 
     DWORD importRVA = 0;
     DWORD importSize = 0;
@@ -105,30 +102,52 @@ void import_table_analysis(_In_ const PFileContext fc) {
 
     if (importRVA == 0) {
         LOG_VERBOSE_SUSPICIOUS_INDICATOR("Invalid import table (possible packing or manual import resolution)!", "");
-        return;
+        return false;
     }
 
     if (importSize == 0) {
         LOG_VERBOSE_SUSPICIOUS_INDICATOR("Invalid import table size(possible packing or manual import resolution)!", "");
-        return;
+        return false;
     }
+
+    if (outImportRVA) *outImportRVA = importRVA;
+    
+    return true;
+}
+
+void import_table_analysis(_In_ const PFileContext fc, _In_ int* indicators) {
+    LPVOID baseAddress = get_base_address(fc);
+    DWORD importRVA;
+    
+    if (!has_import_table(fc,&importRVA)) return;
 
     DWORD importOffset = rva_to_raw(fc, importRVA);
-    if (importOffset == 0) {
-        return;
-    }
+    if (importOffset == 0) return;
 
     PIMAGE_IMPORT_DESCRIPTOR imp =(PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)baseAddress + importOffset);
-
+    
+    DWORD totalLibraries = 0;
     while (imp->Name != 0) {
         DWORD nameOffset = rva_to_raw(fc, imp->Name);
         if (nameOffset == 0) break;
 
-        char* lib = (char*)((BYTE*)baseAddress + nameOffset);
-        printf("Library: %s\n", lib); 
-
+        totalLibraries++;
         imp++;
     }
+
+    if (totalLibraries < 2) 
+    {
+        *indicators += 5;
+        LOG_VERBOSE_SUSPICIOUS_INDICATOR("Extremely low number of imports detect!", "Possible manual import table resolution!");
+    }
+    
+    if (totalLibraries < 4) 
+    {
+        *indicators += 2;
+        LOG_VERBOSE_SUSPICIOUS_INDICATOR("Low number of imports detect!", "Possible manual import table resolution!");
+    }
+
+    return;
 }
 
 _Check_return_ 

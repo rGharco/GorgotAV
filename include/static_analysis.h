@@ -44,7 +44,7 @@ PBYTE create_hash(_In_ HANDLE hFile, _Out_ DWORD* outCbHash);
 //-----------------------------------------------------------
 // From section_analysis.c
 //-----------------------------------------------------------
-void import_table_analysis(_In_ const PFileContext fc);
+void import_table_analysis(_In_ const PFileContext fc, _In_ int* indicators);
 
 _Check_return_ _Ret_maybenull_
 char** get_suspicious_executable_sections(_In_ const PFileContext fc, WORD* outCount);

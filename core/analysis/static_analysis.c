@@ -109,6 +109,7 @@ DWORD rva_to_raw(const PFileContext fc, DWORD rva) {
         }
     }
 
+	log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "RVA does not map to any section!", "rva_to_raw() failed!");
     return 0;
 }
 
@@ -391,7 +392,7 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	check_overlay_anomalies(fc);
 
 	LOG_VERBOSE(config.outFile, "Checking import table...");
-	import_table_analysis(fc);
+	import_table_analysis(fc, &indicators);
 
 	LOG_VERBOSE(config.outFile, "Checking field malformations...");
 	if (!verify_checksum_validity(fc)) {
