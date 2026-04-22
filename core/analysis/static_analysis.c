@@ -210,11 +210,7 @@ static bool detect_overlay_exist(_In_ const PFileContext fc, _Out_ DWORD* restri
 		}
 	}
 
-	LARGE_INTEGER lFileSize;
-	if (!GetFileSizeEx(get_file_handle(fc), &lFileSize)) {
-		log_error_winapi(GetLastError(), MODULE_NAME, __func__, "Failed to get file size for overlay detection!, GetFileSizeEx() failed!");
-		return false;
-	}
+	LONGLONG lFileSize = get_file_size(fc); 
 
 	// -- Verify certificate existance and remove the bytes of it to not be treated as overlay
 	DWORD certOffset = 0;
@@ -238,13 +234,13 @@ static bool detect_overlay_exist(_In_ const PFileContext fc, _Out_ DWORD* restri
 		effectiveEnd = certOffset + certSize;
 	}
 
-	if (lFileSize.QuadPart > effectiveEnd) {
-		DWORD size = (DWORD)(lFileSize.QuadPart - effectiveEnd);
+	if (lFileSize > effectiveEnd) {
+		DWORD size = (DWORD)(lFileSize - effectiveEnd);
 		if (size < MEMORY_512B) {
 			return false; // Noise filter for padding/alignment overlays
 		}
 
-		*overlaySize = (DWORD)(lFileSize.QuadPart - effectiveEnd);
+		*overlaySize = (DWORD)(lFileSize - effectiveEnd);
 		*overlayOffset = effectiveEnd;
 		return true;
 	}
@@ -314,8 +310,10 @@ static void check_overlay_anomalies(_In_ const PFileContext fc) {
 }
 
 // We do not free the pointers allocated in this function as their lifetime is dependent of AnalaysisResult 
-void static_analysis(const PFileContext fc, AnalysisResult* result) {
-	// -- Hashing 
+void static_analysis_pe(const PFileContext fc, AnalysisResult* result) {
+	//----------------------------------------------------------------------------------
+    // Hashing
+    //----------------------------------------------------------------------------------
 	show_analysis_steps_banner("Analysis Steps");
 
 	PBYTE hash = create_hash(get_file_handle(fc), NULL);
@@ -324,45 +322,33 @@ void static_analysis(const PFileContext fc, AnalysisResult* result) {
 	if (sha256Hash == NULL) {
 		log_error(LOG_MEMORY_ALLOCATION_ERR, MODULE_NAME, __func__, "Failed to allocate memory for SHA256 hash.", "calloc() failed!");
 	}
-
-	binaryToHexHash(hash, sha256Hash);
+	else {
+		binaryToHexHash(hash, sha256Hash);
+	}
 
 	result->sha256Hash = sha256Hash;
 
-	// -- Entropy calculation
+	//----------------------------------------------------------------------------------
+    // Entropy calculation
+    //----------------------------------------------------------------------------------
 	LOG_VERBOSE(config.outFile, "Starting entropy calculation...");
 
-	LARGE_INTEGER lInt;
-	if (!GetFileSizeEx(get_file_handle(fc), &lInt)) {
-		log_error_winapi(GetLastError(), MODULE_NAME, __func__, "Failed to get file size for entropy calculation! GetFileSizeEx() failed!");
-	}
-	else {
-		double entropy = memory_entropy_calculation(lInt.QuadPart, get_base_address(fc));
-		if (entropy <= 0) {
-			log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
-			return;
-		}
-
-		result->entropy = entropy;
-
-		if (verify_entropy_status(entropy) == ENTROPY_SUSPICIOUS) 
-		{
-			LOG_VERBOSE_SUSPICIOUS_INDICATOR("Slightly high entropy detected!", "");
-		}
-
-		if(verify_entropy_status(entropy) == ENTROPY_HIGHLY_SUSPICIOUS)
-		{
-			LOG_VERBOSE_SUSPICIOUS_INDICATOR("High entropy detected!", "");
-		}
+	double entropy = memory_entropy_calculation(get_file_size(fc), get_base_address(fc));
+	if (entropy <= 0) {
+		log_error(BAD_OPERATION_ERR, MODULE_NAME, __func__, "Failed to compute entropy for target!", "");
+		return;
 	}
 
-	// -- PE Header parsing
-	LOG_VERBOSE(config.outFile, "Parsing PE headers...");
+	result->entropy = entropy;
 
-	PEStatus status = parse_pe(fc);
-	if (status != PE_STATUS_OK) {
-		printf("[INFO] The file is not an executable! Proceeding with file type identification!\n");
-		// TODO: Implement different checking mechanisms that work for files that do not respect the PE format
+	if (verify_entropy_status(entropy) == ENTROPY_SUSPICIOUS) 
+	{
+		LOG_VERBOSE_SUSPICIOUS_INDICATOR("Slightly high entropy detected!", "");
+	}
+
+	if(verify_entropy_status(entropy) == ENTROPY_HIGHLY_SUSPICIOUS)
+	{
+		LOG_VERBOSE_SUSPICIOUS_INDICATOR("High entropy detected!", "");
 	}
 
 	LOG_VERBOSE(config.outFile, "Analyzing section flags...");

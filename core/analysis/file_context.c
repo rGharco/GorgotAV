@@ -20,6 +20,7 @@ struct FileContext {
         PIMAGE_NT_HEADERS32 nt32;
         PIMAGE_NT_HEADERS64 nt64;
     } nt;
+    LONGLONG fileSize;
 };
 
 //----------------------------------------------------------------------------------
@@ -172,6 +173,10 @@ void* get_optional_header(void* nt_headers, int format) {
         return get_optional_header_64(nt_headers);
 }
 
+LONGLONG get_file_size(_In_ const PFileContext fc) {
+    return fc->fileSize;
+}
+
 //----------------------------------------------------------------------------------
 // Setters
 //----------------------------------------------------------------------------------
@@ -195,6 +200,10 @@ void set_nr_of_sections(const PFileContext fc, WORD sectionNr) {
 
 void set_pe_format(PFileContext fc, PeFormat format) {
     fc->peFormat = format;
+}
+
+void set_file_size(_Inout_ PFileContext fc, _In_ LONGLONG size) {
+    fc->fileSize = size;
 }
 
 //----------------------------------------------------------------------------------

@@ -3,6 +3,9 @@
 #include "static_analysis.h"
 #include "analysis_result.h"
 #include "logging.h"
+#include "pe_utils.h"
+
+#define MODULE_NAME "main.c" 
 
 int main(int argc, char* argv[]) {
     //-----------------------------------------------------------
@@ -37,7 +40,31 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    static_analysis(fileContext, analysisResult);
+    //----------------------------------------------------------------------------------
+    // Metadata
+    //----------------------------------------------------------------------------------
+
+    LARGE_INTEGER lInt;
+    if (!GetFileSizeEx(get_file_handle(fileContext), &lInt)) {
+        log_error_winapi(GetLastError(), MODULE_NAME, __func__, "GetFileSizeEx() failed!");
+        return;
+    }
+
+    set_file_size(fileContext, lInt.QuadPart);
+
+    //----------------------------------------------------------------------------------
+    // PE parsing 
+    //----------------------------------------------------------------------------------
+	LOG_VERBOSE(config.outFile, "Parsing PE headers...");
+
+	PEStatus status = parse_pe(fileContext);
+	if (status != PE_STATUS_OK) {
+		printf("[INFO] The file is not an executable! Proceeding with file type identification!\n");
+		// TODO: Implement different checking mechanisms that work for files that do not respect the PE format
+	}
+    else {
+        static_analysis_pe(fileContext, analysisResult);
+    }
 
 	log_analysis_result(analysisResult);
     

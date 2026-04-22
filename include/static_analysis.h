@@ -78,7 +78,7 @@ bool verify_checksum_validity(_In_ const PFileContext fc);
 //-----------------------------------------------------------
 // Static Analysis functions
 //-----------------------------------------------------------
-void static_analysis(const PFileContext fc, AnalysisResult* result);
+void static_analysis_pe(const PFileContext fc, AnalysisResult* result);
 
 _Check_return_
 double memory_entropy_calculation(_In_ const uint64_t size, _In_ const BYTE* dataPtr);
